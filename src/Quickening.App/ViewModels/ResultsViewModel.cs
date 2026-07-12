@@ -223,7 +223,7 @@ public sealed class SelectableFile : INotifyPropertyChanged
     public bool ShowFileTypeIcon => !HasThumbnail && _fileTypeIcon is not null;
     public bool ShowCategoryGlyph => !HasThumbnail && _fileTypeIcon is null;
 
-    public async System.Threading.Tasks.Task LoadFileTypeIconAsync()
+    public void LoadFileTypeIcon()
     {
         if (_fileTypeIconRequested || HasThumbnail)
         {
@@ -231,7 +231,9 @@ public sealed class SelectableFile : INotifyPropertyChanged
         }
         _fileTypeIconRequested = true;
 
-        var source = await Services.ShellIconProvider.GetIconSourceAsync(Path);
+        // Synchronous, per-extension cached, and fast (GDI icon extraction), so it
+        // runs inline on the UI thread from the row's Loaded handler.
+        var source = Services.ShellIconProvider.GetIconSource(Path);
         if (source is null)
         {
             return;

@@ -423,7 +423,7 @@ public sealed partial class LargeFilesResultsPage : Page
         if (sender is FrameworkElement { DataContext: SelectableFile file })
         {
             _ = file.LoadVideoThumbnailAsync();
-            _ = file.LoadFileTypeIconAsync();
+            file.LoadFileTypeIcon();
         }
     }
 

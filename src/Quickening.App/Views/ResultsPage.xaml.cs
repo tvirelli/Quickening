@@ -797,7 +797,7 @@ public sealed partial class ResultsPage : Page
             // Videos lazily load a poster frame; non-media rows lazily load their
             // real shell type icon. Each no-ops when it doesn't apply.
             _ = file.LoadVideoThumbnailAsync();
-            _ = file.LoadFileTypeIconAsync();
+            file.LoadFileTypeIcon();
         }
     }
 
