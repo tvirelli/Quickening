@@ -133,9 +133,17 @@ public partial class App : Application
     /// <param name="args">Details about the launch request and process.</param>
     protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
     {
+        // User data lives in a SIBLING of the Velopack install directory, not
+        // inside it. Velopack installs to %LocalAppData%\Quickening; if the app
+        // also wrote its logs/db/settings there, that folder would already exist
+        // (and be non-empty) before Setup.exe runs - e.g. after a dev
+        // `dotnet run` - and Velopack would treat it as "already installed" and
+        // refuse to install (with no uninstall entry ever created). Keeping data
+        // in %LocalAppData%\QuickeningData avoids that collision, and it also
+        // survives app updates untouched since Velopack never manages this path.
         var appDataDir = System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Quickening");
+            "QuickeningData");
         System.IO.Directory.CreateDirectory(appDataDir);
 
         Logger = new Quickening.Core.Logging.FileLogger(System.IO.Path.Combine(appDataDir, "logs"));
