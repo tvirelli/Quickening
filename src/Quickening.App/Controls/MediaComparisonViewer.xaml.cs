@@ -568,6 +568,7 @@ public sealed partial class MediaComparisonViewer : UserControl
         private bool _suppressSeek;
         private bool _scrubbing;
         private TimeSpan _duration;
+        private TimeSpan _observedEnd; // true end captured at MediaEnded; corrects a bogus NaturalDuration
 
         public MediaController(SelectableFile file, Border mediaHost, DispatcherQueue dispatcher, ResourceDictionary resources)
         {
@@ -653,6 +654,7 @@ public sealed partial class MediaComparisonViewer : UserControl
             _player.MediaFailed += OnMediaFailed;
             _session.PlaybackStateChanged += OnPlaybackStateChanged;
             _session.PositionChanged += OnPositionChanged;
+            _session.NaturalDurationChanged += OnNaturalDurationChanged;
         }
 
         private void OnPlayPauseClick(object sender, RoutedEventArgs e)
@@ -695,22 +697,26 @@ public sealed partial class MediaComparisonViewer : UserControl
             }
         }
 
-        private void OnMediaOpened(MediaPlayer sender, object args)
-        {
-            _dispatcher.TryEnqueue(() =>
-            {
-                _duration = _session.NaturalDuration;
-                var totalSeconds = _duration.TotalSeconds;
-                if (totalSeconds > 0)
-                {
-                    _suppressSeek = true;
-                    _seek.Maximum = totalSeconds;
-                    _suppressSeek = false;
-                    _seek.IsEnabled = true;
-                }
+        private void OnMediaOpened(MediaPlayer sender, object args) => _dispatcher.TryEnqueue(ApplyDuration);
 
-                UpdateTimeText(TimeSpan.Zero);
-            });
+        private void OnNaturalDurationChanged(MediaPlaybackSession sender, object args) => _dispatcher.TryEnqueue(ApplyDuration);
+
+        // Recomputes the displayed total + slider max from the best-known
+        // duration (see VideoDuration.Best - the observed true end wins over a
+        // bogus NaturalDuration once known). Runs on the UI thread.
+        private void ApplyDuration()
+        {
+            _duration = VideoDuration.Best(_session.NaturalDuration, _observedEnd);
+            var totalSeconds = _duration.TotalSeconds;
+            if (totalSeconds > 0)
+            {
+                _suppressSeek = true;
+                _seek.Maximum = totalSeconds;
+                _suppressSeek = false;
+                _seek.IsEnabled = true;
+            }
+
+            UpdateTimeText(_session.Position);
         }
 
         private void OnPositionChanged(MediaPlaybackSession sender, object args)
@@ -748,10 +754,18 @@ public sealed partial class MediaComparisonViewer : UserControl
         // clean, crash-free reset.
         private void OnMediaEnded(MediaPlayer sender, object args)
         {
+            var endPos = sender.PlaybackSession.Position;
             _dispatcher.TryEnqueue(() =>
             {
                 try
                 {
+                    // Position at end-of-media is the true duration - lets a
+                    // bogus NaturalDuration self-correct once the clip plays out.
+                    if (endPos > _observedEnd)
+                    {
+                        _observedEnd = endPos;
+                        ApplyDuration();
+                    }
                     _player.Pause();
                     _session.Position = TimeSpan.Zero;
                     _playPause.Content = PlayGlyph;
@@ -899,6 +913,7 @@ public sealed partial class MediaComparisonViewer : UserControl
                 _player.MediaFailed -= OnMediaFailed;
                 _session.PlaybackStateChanged -= OnPlaybackStateChanged;
                 _session.PositionChanged -= OnPositionChanged;
+                _session.NaturalDurationChanged -= OnNaturalDurationChanged;
                 _playPause.Click -= OnPlayPauseClick;
                 _seek.ValueChanged -= OnSeekValueChanged;
 
