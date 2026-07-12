@@ -6,6 +6,23 @@ automatically, so you're normally on the latest version already.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and
 Quickening follows [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-07-12
+
+### Added
+- Redesigned the results filters into a single left sidebar rail (category,
+  size, modified date, path, copies, extension); the list header is now just
+  Select actions plus a result count.
+- Multi-select category filtering, shown as a checklist with live per-category
+  file counts ("All" clears the filter).
+- Filter by file extension, listing only extensions that appear in the results
+  (and only ones that yield a group of 2+, so every choice returns results).
+- Calendar date pickers for Modified, a copies dropdown (2–10+), and a size
+  value + MB/GB unit input.
+
+### Fixed
+- Filter inputs now match the dark theme with centered placeholders and no
+  leftover default WinUI field chrome.
+
 ## [1.1.0] - 2026-07-12
 
 ### Added
@@ -52,6 +69,7 @@ Quickening follows [Semantic Versioning](https://semver.org/).
   photos on Windows 10 & 11, and remove them safely to the Recycle Bin.
 - Silent automatic updates.
 
+[1.2.0]: https://github.com/tvirelli/Quickening/releases/tag/v1.2.0
 [1.1.0]: https://github.com/tvirelli/Quickening/releases/tag/v1.1.0
 [1.0.3]: https://github.com/tvirelli/Quickening/releases/tag/v1.0.3
 [1.0.2]: https://github.com/tvirelli/Quickening/releases/tag/v1.0.2
