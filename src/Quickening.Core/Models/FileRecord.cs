@@ -5,6 +5,14 @@ public sealed class FileRecord
     public required string Path { get; init; }
     public required long SizeBytes { get; init; }
     public required DateTime LastWriteTimeUtc { get; init; }
+
+    // Not required: only the live scan (FileEnumerator) sets a real value; the
+    // SqliteStore hash-cache doesn't persist it and every other construction
+    // (tests, watcher reads) leaves it default(DateTime) = "unknown", which the
+    // created-together safety signal treats as no-signal. Used only by
+    // Quickening.Core.Safety.CreatedTogetherDetector.
+    public DateTime CreationTimeUtc { get; init; }
+
     public required MimeCategory Category { get; init; }
     public byte[]? PartialHash { get; set; }
     public byte[]? FullHash { get; set; }

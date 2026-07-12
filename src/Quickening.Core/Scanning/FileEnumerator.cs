@@ -144,6 +144,7 @@ public sealed class FileEnumerator
                 Path = entry.ToFullPath(),
                 SizeBytes = entry.Length,
                 LastWriteTimeUtc = entry.LastWriteTimeUtc.UtcDateTime,
+                CreationTimeUtc = entry.CreationTimeUtc.UtcDateTime,
                 Category = ExtensionMap.GetValueOrDefault(Path.GetExtension(entry.FileName).ToString(), MimeCategory.Other),
                 IsCloudPlaceholder = IsCloudPlaceholder(entry.Attributes),
             },
