@@ -1,0 +1,43 @@
+<Window
+    x:Class="Quickening.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        The one and only background paint for the whole window - BgGradientBrush
+        spans this root Grid's full height (title bar row + content row
+        together), so the gradient flows continuously behind both instead of
+        each page repainting its own separate copy starting fresh below the
+        title bar (which read as two stacked, disconnected color blocks -
+        a flat title-bar strip sitting on top of a page's own gradient - not
+        one continuous background). Every page below sets no Background of
+        its own (or Transparent) so this single gradient shows through
+        everywhere; ContentFrame.Background is explicitly Transparent since
+        Frame's default theme background is opaque.
+    -->
+    <Grid Background="{StaticResource BgGradientBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!--
+            48px title-bar strip, extended-into via ExtendsContentIntoTitleBar
+            in code-behind. Native Windows caption buttons render themselves
+            (styled via AppWindowTitleBar in code-behind, not drawn here) -
+            this Grid only supplies the draggable region and the wordmark
+            logo (logo.png already contains the icon; the separate icon.png
+            was removed as redundant per 2026-07-11 feedback).
+        -->
+        <Grid x:Name="TitleBarRegion" Grid.Row="0" Padding="20,0,0,0" Background="Transparent">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <!-- 32 in the 48px strip, nudged down (top margin) per
+                     2026-07-11 feedback; 38 left the wordmark visually
+                     glued to the top edge. -->
+                <Image Source="ms-appx:///Assets/Branding/logo.png" Height="32" Margin="0,6,0,0" />
+            </StackPanel>
+        </Grid>
+
+        <Frame x:Name="ContentFrame" Grid.Row="1" Background="Transparent" />
+    </Grid>
+</Window>

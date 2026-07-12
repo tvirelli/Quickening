@@ -1,0 +1,86 @@
+<Page
+    x:Class="Quickening.App.Views.NothingOverThresholdPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Quickening.App.Controls"
+    Background="Transparent">
+
+    <!--
+        Screen 3b in design-handoff/Quickening Screens.dc.html - reached when
+        a Large Files scan finds nothing at/above the chosen threshold. Offers
+        up to three one-tap lower thresholds (computed in code-behind via
+        HomePage.ClosestThresholdRepresentation/ComputeThresholdBytes - see
+        ComputeLowerQuickPicks) plus a rescan CTA that re-runs the scan
+        immediately at whichever chip is picked, via
+        HomePage.HomePagePrefillRequest's AutoStart.
+    -->
+    <Grid>
+        <!-- Ambient glow: 3b's "radial-gradient(closest-side, rgba(46,107,255,0.13), rgba(46,107,255,0))" -->
+        <Ellipse Width="680" Height="560" HorizontalAlignment="Center" VerticalAlignment="Top"
+                 Margin="0,-50,0,0" IsHitTestVisible="False">
+            <Ellipse.Fill>
+                <RadialGradientBrush>
+                    <GradientStop Color="#212E6BFF" Offset="0" />
+                    <GradientStop Color="#002E6BFF" Offset="1" />
+                </RadialGradientBrush>
+            </Ellipse.Fill>
+        </Ellipse>
+
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,108,0,0">
+            <!-- Magnifying-glass badge: 120px circle, rgba(127,173,255,.07) fill / .3 border, per 3b -->
+            <Grid Width="120" Height="120" HorizontalAlignment="Center">
+                <Ellipse Fill="#127FADFF" Stroke="#4D7FADFF" StrokeThickness="1.5" />
+                <Viewbox Width="46" Height="46">
+                    <Canvas Width="46" Height="46">
+                        <Ellipse Canvas.Left="9" Canvas.Top="9" Width="22" Height="22"
+                                 Stroke="{StaticResource AccentLightBrush}" StrokeThickness="3.5" />
+                        <Line X1="29" Y1="29" X2="38" Y2="38" Stroke="{StaticResource AccentLightBrush}"
+                              StrokeThickness="3.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                    </Canvas>
+                </Viewbox>
+            </Grid>
+
+            <TextBlock x:Name="NoHeavyweightsHeadline" Text="No heavyweights up here." HorizontalAlignment="Center" Margin="0,32,0,0"
+                       FontFamily="{StaticResource DisplayFontFamily}"
+                       FontSize="{StaticResource FontSizeEmptyStateHeadline}" FontWeight="Bold"
+                       CharacterSpacing="{StaticResource TrackingTight1px}"
+                       Foreground="{StaticResource TextHeadingBrush}" />
+
+            <TextBlock x:Name="SubtitleText" HorizontalAlignment="Center" Margin="0,12,0,0"
+                       FontSize="{StaticResource FontSizeBody}" Foreground="{StaticResource TextMutedBrush}"
+                       TextAlignment="Center" TextWrapping="Wrap" MaxWidth="640" />
+
+            <!-- Quick-pick threshold chips - collapsed entirely when the used
+                 threshold was already the smallest step (10 MB), since there's
+                 no honest "lower" value to offer in that case. -->
+            <StackPanel x:Name="QuickPicksRow" Orientation="Horizontal" Spacing="10"
+                        HorizontalAlignment="Center" Margin="0,44,0,0">
+                <TextBlock Text="Lower the bar and look again:" VerticalAlignment="Center"
+                           FontSize="13.5" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                <Button x:Name="Chip1Button" Click="ThresholdChip_Click" Padding="22,10"
+                        controls:PillCornerRadius.Enabled="True"
+                        FontFamily="{StaticResource DisplayFontFamily}" FontSize="14.5" FontWeight="Bold" />
+                <Button x:Name="Chip2Button" Click="ThresholdChip_Click" Padding="22,10"
+                        controls:PillCornerRadius.Enabled="True"
+                        FontFamily="{StaticResource DisplayFontFamily}" FontSize="14.5" FontWeight="Bold" />
+                <Button x:Name="Chip3Button" Click="ThresholdChip_Click" Padding="22,10"
+                        controls:PillCornerRadius.Enabled="True"
+                        FontFamily="{StaticResource DisplayFontFamily}" FontSize="14.5" FontWeight="Bold" />
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Spacing="16" HorizontalAlignment="Center" Margin="0,40,0,0">
+                <Button x:Name="RescanButton" Click="Rescan_Click" Style="{StaticResource GradientPillButtonStyle}">
+                    <Border controls:PillCornerRadius.Enabled="True" Padding="44,16" Background="{StaticResource CtaGradientBrush}">
+                        <TextBlock x:Name="RescanButtonText" FontFamily="{StaticResource DisplayFontFamily}"
+                                   FontSize="{StaticResource FontSizeCta}" FontWeight="Bold" Foreground="White" />
+                    </Border>
+                </Button>
+                <Button Content="Back home" Click="BackHome_Click" Padding="30,16"
+                        controls:PillCornerRadius.Enabled="True" Background="Transparent"
+                        Foreground="{StaticResource TextBodyEmphasisBrush}"
+                        FontFamily="{StaticResource DisplayFontFamily}" FontSize="16" FontWeight="SemiBold"
+                        BorderBrush="{StaticResource SecondaryButtonBorderBrush}" BorderThickness="1.5" />
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</Page>

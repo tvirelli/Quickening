@@ -1,0 +1,505 @@
+<Page
+    x:Class="Quickening.App.Views.ResultsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:converters="using:Quickening.App.Converters"
+    xmlns:controls="using:Quickening.App.Controls"
+    mc:Ignorable="d"
+    NavigationCacheMode="Enabled">
+
+    <!--
+        Screen 2g in design-handoff/Quickening Screens.dc.html - see
+        DESIGN-SPEC.md §5. MainWindow.xaml already draws the shared 48px
+        title-bar strip above this page's Frame; every offset below is
+        measured from the top of this page's own content area, matching
+        2g's content starting right after its identical header. This is the
+        Duplicates (grouped) results view - flat background per
+        DESIGN-SPEC.md §1 ("bg.base - flat screens (results lists)"), not the
+        gradient hero background HomePage/ProgressPage/ScanCompletePage use.
+    -->
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+        <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
+        <converters:InverseBoolConverter x:Key="InverseBoolConverter" />
+        <converters:BoolToDoubleConverter x:Key="NetworkRowOpacityConverter" TrueValue="0.55" FalseValue="1" />
+        <converters:CategoryIconTemplateConverter x:Key="CategoryIconTemplateConverter" />
+        <converters:CategoryFillBrushConverter x:Key="CategoryFillBrushConverter" />
+        <converters:GroupSwatchBrushConverter x:Key="GroupSwatchBrushConverter" />
+        <converters:GroupRepresentativeFileNameConverter x:Key="GroupRepresentativeFileNameConverter" />
+        <converters:GroupCopiesLabelConverter x:Key="GroupCopiesLabelConverter" />
+        <converters:GroupFreesLabelConverter x:Key="GroupFreesLabelConverter" />
+        <converters:FileNameFromPathConverter x:Key="FileNameFromPathConverter" />
+        <converters:DirectoryFromPathConverter x:Key="DirectoryFromPathConverter" />
+        <converters:LastWriteDateConverter x:Key="LastWriteDateConverter" />
+        <converters:FileSizeConverter x:Key="FileSizeConverter" />
+
+        <!--
+            Per-row corner-rounding/border/margin for GroupsListView's now-
+            flattened header+file rows - see ResultsPage.xaml.cs's
+            RebuildFlatRows doc comment for why this is flattened at all.
+            Header rows are always "top of card" (rounded top corners, no
+            bottom border); file rows use these two converters to look like
+            a plain middle row normally, or the closing/bottom row of the
+            card on the last file in its group.
+        -->
+        <converters:BoolToCornerRadiusConverter x:Key="LastInGroupCornerRadiusConverter"
+                                                 TrueValue="0,0,18,18" FalseValue="0" />
+        <converters:BoolToThicknessConverter x:Key="LastInGroupBorderThicknessConverter"
+                                              TrueValue="1,0,1,1" FalseValue="1,0,1,0" />
+        <converters:BoolToThicknessConverter x:Key="LastInGroupMarginConverter"
+                                              TrueValue="0,0,0,12" FalseValue="0" />
+
+        <!--
+            Selected-row tint (screen 2g: "selected rows tinted
+            rgba(46,107,255,.05)") - SurfaceRowSelectedBrush (Theme.xaml,
+            Task 1) is exactly that value. Reuses the existing
+            BoolToBrushConverter (Task 4's HomePage already established this
+            "instance configured via XAML properties" pattern for a bool ->
+            brush swap) rather than a new converter class.
+        -->
+        <converters:BoolToBrushConverter x:Key="RowSelectedFillConverter"
+                                          TrueBrush="{StaticResource SurfaceRowSelectedBrush}"
+                                          FalseBrush="Transparent" />
+
+        <!--
+            Category filter chips (screen 2g line ~561-571) - judgment call:
+            ListViewItem in this WinUI3 version has no Selected*/PointerOver*
+            brush properties to set via an ItemContainerStyle (confirmed by
+            a build attempt - WMC0090 "Unknown member" on all of them), so
+            the chip's selected look is driven the same way Task 4's
+            HomePage already drives its folder-tile selected look: a plain
+            bool property on the bound model (CategorySidebarItem.IsSelected,
+            set explicitly in ResultsPage.xaml.cs's
+            CategorySidebar_SelectionChanged/PopulateCategorySidebar) read
+            through BoolToBrushConverter instances, NOT the ListView's own
+            native selection visuals. ItemContainerStyle below only resets
+            layout chrome (padding/margin/borders) that WOULD otherwise come
+            from the default ListViewItem template.
+        -->
+        <converters:BoolToBrushConverter x:Key="ChipBackgroundConverter"
+                                          TrueBrush="{StaticResource AccentBrush}" FalseBrush="Transparent" />
+        <converters:BoolToBrushConverter x:Key="ChipBorderConverter"
+                                          TrueBrush="{StaticResource AccentBrush}"
+                                          FalseBrush="{StaticResource SurfaceCardBorderBrush}" />
+        <converters:BoolToBrushConverter x:Key="ChipForegroundConverter"
+                                          TrueBrush="White" FalseBrush="{StaticResource TextMutedBrush}" />
+
+        <Style x:Key="CategoryChipItemStyle" TargetType="ListViewItem">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+
+        <!-- Bulk-select chips (All/None/Invert/Over-size, screen 2g line ~582-585) -->
+        <Style x:Key="BulkChipButtonStyle" TargetType="Button">
+            <Setter Property="Padding" Value="14,6" />
+            <Setter Property="controls:PillCornerRadius.Enabled" Value="True" />
+            <Setter Property="Background" Value="{StaticResource SurfaceCardBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource SurfaceCardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+            <Setter Property="FontFamily" Value="{StaticResource BodyFontFamily}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+
+        <!-- Modified-date / Path-contains free-text fields (new-screens 4i) -->
+        <Style x:Key="DateFilterTextBoxStyle" TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource SurfaceCardBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource SurfaceCardBorderBrush}" />
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusInput}" />
+            <Setter Property="FontFamily" Value="{StaticResource MonoFontFamily}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+        </Style>
+
+        <!-- Min/Max size NumberBox restyle (screen 2g's "min — MB"/"max — MB" pill fields) -->
+        <Style x:Key="SizeFilterNumberBoxStyle" TargetType="NumberBox">
+            <Setter Property="Width" Value="92" />
+            <Setter Property="SpinButtonPlacementMode" Value="Compact" />
+            <Setter Property="Background" Value="{StaticResource SurfaceCardBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource SurfaceCardBorderBrush}" />
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusInput}" />
+            <Setter Property="FontFamily" Value="{StaticResource MonoFontFamily}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+        </Style>
+
+        <!--
+            GroupsListView's two row kinds (assigned via RowTemplateSelector
+            in ResultsPage.xaml.cs, not ListView.ItemTemplate) - see
+            ResultsPage.xaml.cs's RebuildFlatRows/RowTemplateSelector doc
+            comments for why the list is a single flat level instead of a
+            group ListView nesting a per-group ItemsControl.
+
+            Deliberate one-off literals below (#09FFFFFF/#12FFFFFF/#0FFFFFFF),
+            not SurfaceCardBrush/SurfaceCardBorderBrush (Theme.xaml) - screen
+            2g's group cards use a lighter alpha (0.035/0.07/0.06) than those
+            shared tokens (0.043/0.08), a distinct value from the design
+            spec, not an oversight - don't "simplify" this back to the
+            StaticResource tokens. Every row (header and file) paints this
+            same card-background color as its own base, rounded only at the
+            card's actual top (header) or bottom (a group's last file) edge,
+            so the flattened rows still read as one continuous card per
+            group rather than a stack of separate boxes.
+        -->
+        <DataTemplate x:Key="ResultsHeaderRowTemplate">
+            <Border CornerRadius="18,18,0,0" Background="#09FFFFFF"
+                    BorderBrush="#12FFFFFF" BorderThickness="1,1,1,0">
+                <Border BorderThickness="0,0,0,1" BorderBrush="#0FFFFFFF" Padding="18,13">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Ellipse Grid.Column="0" Width="9" Height="9"
+                                 Fill="{Binding Group.Files, Converter={StaticResource GroupSwatchBrushConverter}}"
+                                 VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding Group.Files, Converter={StaticResource GroupRepresentativeFileNameConverter}}"
+                                   FontFamily="{StaticResource BodyFontFamily}" FontSize="14" FontWeight="Bold"
+                                   Foreground="{StaticResource TextBodyBrush}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2"
+                                   Text="{Binding Group.Files, Converter={StaticResource GroupCopiesLabelConverter}}"
+                                   FontFamily="{StaticResource BodyFontFamily}" FontSize="12.5"
+                                   Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="4"
+                                   Text="{Binding Group.Files, Converter={StaticResource GroupFreesLabelConverter}}"
+                                   FontFamily="{StaticResource BodyFontFamily}" FontSize="12.5" FontWeight="Bold"
+                                   Foreground="{StaticResource SuccessBrush}" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="ResultsFileRowTemplate">
+            <Border Background="#09FFFFFF" BorderBrush="#12FFFFFF"
+                    CornerRadius="{Binding IsLastInGroup, Converter={StaticResource LastInGroupCornerRadiusConverter}}"
+                    BorderThickness="{Binding IsLastInGroup, Converter={StaticResource LastInGroupBorderThicknessConverter}}"
+                    Margin="{Binding IsLastInGroup, Converter={StaticResource LastInGroupMarginConverter}}"
+                    Opacity="{Binding IsOnNetworkDrive, Converter={StaticResource NetworkRowOpacityConverter}}">
+                <Border Padding="18,10"
+                        CornerRadius="{Binding IsLastInGroup, Converter={StaticResource LastInGroupCornerRadiusConverter}}"
+                        Background="{Binding IsSelected, Converter={StaticResource RowSelectedFillConverter}}">
+                    <Border.ContextFlyout>
+                        <!--
+                            WinUI does not propagate a target element's
+                            DataContext into its ContextFlyout content - the
+                            flyout is realized in a separate Popup root,
+                            disconnected from the normal DataContext
+                            inheritance chain (a long-documented WinUI/UWP
+                            limitation: microsoft/microsoft-ui-xaml#911). The
+                            Opening handler below copies it over explicitly
+                            before the flyout shows, using the Target property
+                            FlyoutBase sets to whatever element it was opened
+                            from.
+                        -->
+                        <MenuFlyout Opening="FileRowContextMenu_Opening">
+                            <MenuFlyoutItem Text="Open file location" Click="OpenFileLocation_Click" />
+                        </MenuFlyout>
+                    </Border.ContextFlyout>
+
+                    <Grid ColumnSpacing="14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="20" />
+                            <ColumnDefinition Width="44" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="90" />
+                            <ColumnDefinition Width="78" />
+                        </Grid.ColumnDefinitions>
+
+                        <CheckBox Grid.Column="0" Width="20" Height="20" Padding="0"
+                                  MinWidth="0" MinHeight="0"
+                                  IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                  IsEnabled="{Binding IsOnNetworkDrive, Converter={StaticResource InverseBoolConverter}}"
+                                  Checked="FileSelectionChanged" Unchecked="FileSelectionChanged"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+                        <Border Grid.Column="1" Width="44" Height="44"
+                                CornerRadius="{StaticResource RadiusThumbnail}"
+                                Background="{Binding Category, Converter={StaticResource CategoryFillBrushConverter}}"
+                                Tapped="FileThumbnail_Tapped">
+                            <Grid>
+                                <ContentControl Content="{Binding Category}"
+                                    ContentTemplate="{Binding Category, Converter={StaticResource CategoryIconTemplateConverter}}"
+                                    Visibility="{Binding IsImage, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <Image Source="{Binding ThumbnailSource}" Stretch="UniformToFill"
+                                       Visibility="{Binding IsImage, Converter={StaticResource BoolToVisibilityConverter}}"
+                                       ImageFailed="FileThumbnail_ImageFailed" />
+                            </Grid>
+                        </Border>
+
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="1">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="{Binding Path, Converter={StaticResource FileNameFromPathConverter}}"
+                                           FontFamily="{StaticResource BodyFontFamily}"
+                                           FontSize="{StaticResource FontSizeRowFilename}" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextBodyBrush}"
+                                           TextTrimming="CharacterEllipsis" />
+                                <Border Padding="9,2" controls:PillCornerRadius.Enabled="True"
+                                        Background="{StaticResource SurfaceCardBrush}"
+                                        BorderBrush="{StaticResource SurfaceCardBorderBrush}" BorderThickness="1"
+                                        VerticalAlignment="Center"
+                                        Visibility="{Binding IsOnNetworkDrive, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <TextBlock Text="&#x2601; NETWORK DRIVE — can't remove from here"
+                                               FontFamily="{StaticResource BodyFontFamily}"
+                                               FontSize="{StaticResource FontSizeMicroPill}" FontWeight="ExtraBold"
+                                               Foreground="{StaticResource TextFaintBrush}" />
+                                </Border>
+                            </StackPanel>
+                            <TextBlock Text="{Binding Path, Converter={StaticResource DirectoryFromPathConverter}}"
+                                       FontFamily="{StaticResource MonoFontFamily}"
+                                       FontSize="{StaticResource FontSizeFilePath}"
+                                       Foreground="{StaticResource TextDisabledHintBrush}"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+
+                        <Border Grid.Column="3" Padding="12,4" controls:PillCornerRadius.Enabled="True"
+                                Background="{StaticResource SuccessFillBrush}"
+                                BorderBrush="{StaticResource SuccessFillBorderBrush}" BorderThickness="1"
+                                VerticalAlignment="Center"
+                                Visibility="{Binding IsKeepRecommended, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="{Binding KeepRecommendedLabel}" FontFamily="{StaticResource BodyFontFamily}"
+                                       FontSize="{StaticResource FontSizeMicroPill}" FontWeight="ExtraBold"
+                                       Foreground="{StaticResource SuccessBrush}" />
+                        </Border>
+
+                        <TextBlock Grid.Column="4"
+                                   Text="{Binding LastWriteTimeUtc, Converter={StaticResource LastWriteDateConverter}}"
+                                   FontFamily="{StaticResource BodyFontFamily}" FontSize="12"
+                                   Foreground="{StaticResource TextFaintBrush}"
+                                   HorizontalAlignment="Right" VerticalAlignment="Center" />
+
+                        <TextBlock Grid.Column="5"
+                                   Text="{Binding SizeBytes, Converter={StaticResource FileSizeConverter}}"
+                                   FontFamily="{StaticResource MonoFontFamily}" FontSize="12.5"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   HorizontalAlignment="Right" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+            </Border>
+        </DataTemplate>
+    </Page.Resources>
+
+    <!--
+        Explicit flat background (DESIGN-SPEC.md §1: bg.base is for "flat
+        screens (results lists)", unlike Home/Progress/Summary's bg.gradient)
+        - MainWindow's root paints one continuous bg.gradient behind
+        everything including the title bar, but a flat list screen like this
+        one is meant to stay a single flat color throughout, not adopt that
+        gradient's darker mid-screen dip. This doesn't reintroduce the
+        black-title-bar bug the gradient fix addressed: bg.gradient's first
+        stop is the same color as bg.base, so there's no visible seam where
+        this page's flat background meets the title bar above it.
+    -->
+    <Grid Background="{StaticResource BgBaseBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header: inline back-link + screen title + stats + Export CSV (screen 2g line ~556-560, Export per 4i) -->
+        <Grid Grid.Row="0" Padding="28,10,28,16" ColumnSpacing="18">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="18" VerticalAlignment="Center">
+                <Button Click="BackToSummary_Click" Background="Transparent" BorderThickness="0" Padding="0"
+                        AutomationProperties.Name="Back to Summary">
+                    <TextBlock Text="&#x2190; Summary" FontFamily="{StaticResource BodyFontFamily}"
+                               FontSize="13.5" FontWeight="Bold" Foreground="{StaticResource AccentLightBrush}" />
+                </Button>
+                <TextBlock x:Name="ScreenTitleText" Text="Duplicates" FontFamily="{StaticResource DisplayFontFamily}"
+                           FontSize="{StaticResource FontSizeScreenTitle}" FontWeight="Bold"
+                           Foreground="{StaticResource TextHeadingBrush}" />
+                <TextBlock x:Name="SummaryText" FontFamily="{StaticResource BodyFontFamily}"
+                           FontSize="13" Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
+            </StackPanel>
+            <Button Grid.Column="1" Click="ExportCsv_Click" Style="{StaticResource BulkChipButtonStyle}"
+                    Content="&#x21A7; Export CSV" AutomationProperties.Name="Export CSV" VerticalAlignment="Center" />
+        </Grid>
+
+        <!-- Category filter chips + size-range filters (screen 2g line ~561-579) -->
+        <Grid Grid.Row="1" Padding="28,0,28,12" ColumnSpacing="10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <ListView x:Name="CategorySidebar" Grid.Column="0" SelectionMode="Single"
+                      SelectionChanged="CategorySidebar_SelectionChanged"
+                      ItemContainerStyle="{StaticResource CategoryChipItemStyle}"
+                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                      HorizontalAlignment="Left">
+                <ListView.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="6" />
+                    </ItemsPanelTemplate>
+                </ListView.ItemsPanel>
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <Border Padding="14,7" controls:PillCornerRadius.Enabled="True" BorderThickness="1"
+                                Background="{Binding IsSelected, Converter={StaticResource ChipBackgroundConverter}}"
+                                BorderBrush="{Binding IsSelected, Converter={StaticResource ChipBorderConverter}}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Ellipse Width="8" Height="8" Fill="{Binding SwatchBrush}"
+                                         Visibility="{Binding HasSwatch, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                <TextBlock Text="{Binding Label}" FontFamily="{StaticResource BodyFontFamily}"
+                                           FontSize="12.5" FontWeight="SemiBold"
+                                           Foreground="{Binding IsSelected, Converter={StaticResource ChipForegroundConverter}}" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Text="Size" FontFamily="{StaticResource BodyFontFamily}" FontSize="12" FontWeight="SemiBold"
+                           Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
+                <NumberBox x:Name="MinSizeBox" PlaceholderText="min — MB" Style="{StaticResource SizeFilterNumberBoxStyle}"
+                           ValueChanged="FilterChanged" />
+                <NumberBox x:Name="MaxSizeBox" PlaceholderText="max — MB" Style="{StaticResource SizeFilterNumberBoxStyle}"
+                           ValueChanged="FilterChanged" />
+                <Button Content="Clear" Click="ClearFilters_Click" Background="Transparent" BorderThickness="0" Padding="4,0"
+                        Foreground="{StaticResource AccentLightBrush}" FontFamily="{StaticResource BodyFontFamily}"
+                        FontSize="12" FontWeight="Bold" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Second filter row: modified date range, min copies, path-contains search (screen 2i / new-screens 4i) -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Padding="28,0,28,12">
+            <TextBlock Text="Modified" FontFamily="{StaticResource BodyFontFamily}" FontSize="12" FontWeight="SemiBold"
+                       Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
+            <TextBox x:Name="ModifiedAfterBox" PlaceholderText="from — yyyy-mm-dd" Width="130"
+                     Style="{StaticResource DateFilterTextBoxStyle}" TextChanged="FilterChanged" />
+            <TextBox x:Name="ModifiedBeforeBox" PlaceholderText="to — yyyy-mm-dd" Width="130"
+                     Style="{StaticResource DateFilterTextBoxStyle}" TextChanged="FilterChanged" />
+            <TextBlock Text="Copies" Margin="8,0,0,0" FontFamily="{StaticResource BodyFontFamily}" FontSize="12"
+                       FontWeight="SemiBold" Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
+            <NumberBox x:Name="MinGroupSizeBox" PlaceholderText="2+" Style="{StaticResource SizeFilterNumberBoxStyle}"
+                       Width="70" ValueChanged="FilterChanged" />
+            <TextBlock Text="Path contains" Margin="8,0,0,0" FontFamily="{StaticResource BodyFontFamily}" FontSize="12"
+                       FontWeight="SemiBold" Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
+            <TextBox x:Name="PathContainsBox" PlaceholderText="folder or file name…" Width="220"
+                     Style="{StaticResource DateFilterTextBoxStyle}" TextChanged="FilterChanged" />
+        </StackPanel>
+
+        <!-- Bulk-select toolbar + "Recommended applied" indicator (screen 2g line ~580-587) -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" Padding="28,0,28,12">
+            <TextBlock Text="Select:" FontFamily="{StaticResource BodyFontFamily}" FontSize="12" FontWeight="SemiBold"
+                       Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
+            <Button Content="All" Click="SelectAll_Click" Style="{StaticResource BulkChipButtonStyle}"
+                    AutomationProperties.Name="Select All" />
+            <Button Content="None" Click="SelectNone_Click" Style="{StaticResource BulkChipButtonStyle}"
+                    AutomationProperties.Name="Select None" />
+            <Button Content="Invert" Click="InvertSelection_Click" Style="{StaticResource BulkChipButtonStyle}"
+                    AutomationProperties.Name="Invert Selection" />
+            <Button Content="Over 100 MB…" Click="SelectOver100Mb_Click" Style="{StaticResource BulkChipButtonStyle}"
+                    AutomationProperties.Name="Select Over 100 MB" />
+            <Button Content="By folder…" Click="SelectByFolder_Click" Style="{StaticResource BulkChipButtonStyle}"
+                    AutomationProperties.Name="Select By Folder" />
+            <Border x:Name="RecommendedAppliedPill" Margin="8,0,0,0" Padding="14,6" controls:PillCornerRadius.Enabled="True"
+                    Background="{StaticResource AccentSelectedFillBrush}" BorderBrush="{StaticResource AccentBrush}"
+                    BorderThickness="1" Visibility="Collapsed">
+                <TextBlock Text="&#x26A1; Recommended applied — newest copy kept in every group"
+                           FontFamily="{StaticResource BodyFontFamily}" FontSize="12" FontWeight="Bold"
+                           Foreground="{StaticResource AccentLighterBrush}" />
+            </Border>
+        </StackPanel>
+
+        <!--
+            Grouped results list (screen 2g line ~588-664). ItemsSource is
+            _flatRows (a flat header-then-files sequence), not
+            _viewModel.Groups directly, and there's no ListView.ItemTemplate
+            here - RowTemplateSelector is assigned in ResultsPage.xaml.cs's
+            constructor instead, picking ResultsHeaderRowTemplate or
+            ResultsFileRowTemplate per row. This used to be a ListView of
+            groups, each nesting a second, non-virtualizing ItemsControl for
+            that group's files - that nested collection was the confirmed
+            root cause (via crash-dump analysis) of a native
+            Microsoft.UI.Xaml access violation under fast scrollbar-drag
+            scrolling: the outer ListView's virtualization was rapidly
+            creating/destroying containers that each carried a whole second,
+            unvirtualized collection. Flattening to one level means
+            GroupsListView's own virtualization is the only one in play.
+        -->
+        <!--
+            ShowsScrollingPlaceholders="False": during a fast scroll WinUI
+            otherwise paints light-grey placeholder rectangles over every
+            not-yet-realized row (the "white/grey flash" that looked like
+            selected text sweeping down the list). Turning it off makes rows
+            simply appear as they realize, with no grey flash.
+        -->
+        <ListView x:Name="GroupsListView" Grid.Row="4" Padding="28,0,28,12"
+                  SelectionMode="None" IsItemClickEnabled="False"
+                  ShowsScrollingPlaceholders="False"
+                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <!--
+                Kill the default ListViewItem hover/press/selection tint. The
+                rows draw their own selected/hover treatment (see the file-row
+                template's RowSelectedFillConverter); the container-level tint
+                otherwise flashes a grey highlight over whichever row sits
+                under the stationary cursor while the list scrolls past it.
+            -->
+            <ListView.Resources>
+                <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
+                <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="Transparent" />
+                <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="Transparent" />
+                <SolidColorBrush x:Key="ListViewItemBorderBrushPointerOver" Color="Transparent" />
+                <SolidColorBrush x:Key="ListViewItemBorderBrushPressed" Color="Transparent" />
+                <SolidColorBrush x:Key="ListViewItemBorderBrushSelected" Color="Transparent" />
+            </ListView.Resources>
+            <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem">
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="MinHeight" Value="0" />
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                </Style>
+            </ListView.ItemContainerStyle>
+        </ListView>
+
+        <!-- Sticky footer: live "will come home" stat + Remove Selected (screen 2g line ~665-671) -->
+        <Border Grid.Row="5" Background="{StaticResource FooterBarAcrylicBrush}" BorderBrush="{StaticResource SurfaceCardBorderBrush}"
+                BorderThickness="0,1,0,0" Padding="28,16">
+            <Grid>
+                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" HorizontalAlignment="Left">
+                    <TextBlock x:Name="SelectedSizeText" FontFamily="{StaticResource DisplayFontFamily}"
+                               FontSize="{StaticResource FontSizeFooterStat}" FontWeight="Bold"
+                               Foreground="{StaticResource SuccessBrush}" VerticalAlignment="Bottom" />
+                    <TextBlock x:Name="SelectedCalloutText" FontFamily="{StaticResource BodyFontFamily}"
+                               FontSize="13.5" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Bottom" />
+                </StackPanel>
+                <Button x:Name="RemoveButton" Click="RemoveButton_Click" HorizontalAlignment="Right"
+                        Style="{StaticResource GradientPillButtonStyle}">
+                    <Border controls:PillCornerRadius.Enabled="True" Padding="40,14" Background="{StaticResource CtaGradientBrush}">
+                        <TextBlock Text="Remove Selected &#x26A1;" FontFamily="{StaticResource DisplayFontFamily}"
+                                   FontSize="16" FontWeight="Bold" Foreground="White" />
+                    </Border>
+                </Button>
+            </Grid>
+        </Border>
+
+        <controls:MediaComparisonViewer x:Name="ComparisonViewer" Grid.Row="0" Grid.RowSpan="6" Visibility="Collapsed" />
+    </Grid>
+</Page>

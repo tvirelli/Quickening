@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Quickening.App (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "Quickening.App (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

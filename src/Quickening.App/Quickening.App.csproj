@@ -1,0 +1,167 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>Quickening.App</RootNamespace>
+    <!--
+      Project/namespace stay "Quickening.App", but the shipped binary and
+      its version-info metadata are just "Quickening" - matching how other
+      desktop apps are named (their exe and Task Manager entry read as the
+      product name, not "<Product>.Desktop.exe" or similar). AssemblyTitle
+      is what Task Manager's process list actually displays (it prefers the
+      FileDescription resource string over the raw exe filename when one is
+      present); Product is the Explorer file-Properties "Product name" field.
+    -->
+    <AssemblyName>Quickening</AssemblyName>
+    <AssemblyTitle>Quickening</AssemblyTitle>
+    <Product>Quickening</Product>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x86;x64;ARM64</Platforms>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant())</RuntimeIdentifier>
+    <PublishProfile Condition="Exists('Properties\PublishProfiles\win-$(Platform).pubxml')">win-$(Platform).pubxml</PublishProfile>
+    <UseWinUI>true</UseWinUI>
+    <WinUISDKReferences>false</WinUISDKReferences>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\SplashScreen.scale-200.png" />
+    <Content Include="Assets\LockScreenLogo.scale-200.png" />
+    <Content Include="Assets\Square150x150Logo.scale-200.png" />
+    <Content Include="Assets\Square44x44Logo.scale-200.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-48_altform-lightunplated.png" />
+    <Content Include="Assets\StoreLogo.png" />
+    <Content Include="Assets\AppIcon.ico" />
+    <Content Include="Assets\Wide310x150Logo.scale-200.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Manifest Include="$(ApplicationManifest)" />
+  </ItemGroup>
+
+  <!--
+    Legal documents shipped beside the exe: Settings > About opens these
+    (SettingsDialog.OpenLocalDocument), and the OFL font licenses inside
+    THIRD-PARTY-NOTICES.md are REQUIRED to accompany every distributed copy
+    (OFL 1.1 condition 2).
+  -->
+  <ItemGroup>
+    <None Include="..\..\EULA.md" Link="EULA.md" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\PRIVACY.md" Link="PRIVACY.md" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!--
+    Defining the "Msix" ProjectCapability here allows the Single-project MSIX Packaging
+    Tools extension to be activated for this project even if the Windows App SDK Nuget
+    package has not yet been restored.
+  -->
+  <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+    <ProjectCapability Include="Msix" />
+  </ItemGroup>
+
+  <!--
+    Microsoft.Windows.SDK.BuildTools.WinApp adds first-class support for
+    `dotnet run` on packaged WinUI apps: it hooks the .NET CLI Run target to
+    register a debug identity via the winapp CLI and launch the app with
+    package identity (AUMID).
+    Set <EnableWinAppRunSupport>false</EnableWinAppRunSupport> in a
+    <PropertyGroup> above to opt out.
+  -->
+  <ItemGroup>
+    <PackageReference Include="H.NotifyIcon.WinUI" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2270" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.4.0" />
+    <!--
+      Already a transitive dependency of Microsoft.WindowsAppSDK (pinned
+      [2.2.0] by the meta-package); referenced directly ONLY to get
+      $(PkgMicrosoft_WindowsAppSDK_Runtime) for the
+      DeployWinAppRuntimeInsightsResourceDll target below. If a future
+      WindowsAppSDK bump pins a different Runtime version, NuGet will fail
+      the restore loudly - update this version to match.
+    -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="[2.2.0]" GeneratePathProperty="true" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Quickening.Core\Quickening.Core.csproj" />
+  </ItemGroup>
+
+  <!--
+    Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution
+    Explorer "Package and Publish" context menu entry to be enabled for this project even if
+    the Windows App SDK Nuget package has not yet been restored.
+  -->
+  <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+    <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
+  </PropertyGroup>
+
+  <!-- Publish Properties -->
+  <PropertyGroup>
+    <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
+    <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">True</PublishReadyToRun>
+    <!--
+      Trimming disabled: WinUI/WinRT metadata is a known trim-breakage risk
+      (reflection-based activation can silently misbehave in a trimmed
+      Release build), and no trimmed/published build has been tested yet.
+      Revisit deliberately, with a real trimmed-Release smoke test, before
+      ever re-enabling this.
+    -->
+    <PublishTrimmed>False</PublishTrimmed>
+  </PropertyGroup>
+
+  <!--
+    WASDK 2.x self-contained gap: the native AppNotificationManager.Register()
+    path LoadLibrary's Microsoft.WindowsAppRuntime.Insights.Resource.dll, but
+    the Foundation package's runtimes-framework payload (what
+    WindowsAppSDKSelfContained=true copies) omits it - Register() then fails
+    with 0x8007007E and cold-launch-from-toast activation is lost. The DLL
+    does ship inside the Runtime package's framework MSIX (the packaged
+    deployment path), so extract it from there at build time. Extracting from
+    the resolved package (rather than committing the binary) keeps it in sync
+    with whatever WASDK version is referenced.
+  -->
+  <Target Name="DeployWinAppRuntimeInsightsResourceDll"
+          BeforeTargets="AssignTargetPaths"
+          Condition="'$(WindowsAppSDKSelfContained)' == 'true' and '$(WindowsPackageType)' == 'None' and '$(RuntimeIdentifier)' != ''">
+    <!--
+      Properties computed HERE, not in a project-level PropertyGroup:
+      $(IntermediateOutputPath) is defined by Microsoft.Common.targets,
+      which imports after the csproj body - at body-evaluation time it is
+      empty and the paths would silently resolve to the project root.
+      The destination folder is keyed by the Runtime package version (last
+      segment of the GeneratePathProperty path) so a WASDK bump re-extracts
+      instead of reusing a stale DLL.
+    -->
+    <PropertyGroup>
+      <_InsightsResourceDllName>Microsoft.WindowsAppRuntime.Insights.Resource.dll</_InsightsResourceDllName>
+      <_InsightsMsixPath>$(PkgMicrosoft_WindowsAppSDK_Runtime)\tools\MSIX\$(RuntimeIdentifier.Replace('win-', 'win10-'))\Microsoft.WindowsAppRuntime.2.msix</_InsightsMsixPath>
+      <_InsightsDllDestDir>$(IntermediateOutputPath)winappruntime\$([System.IO.Path]::GetFileName('$(PkgMicrosoft_WindowsAppSDK_Runtime)'))</_InsightsDllDestDir>
+      <_InsightsDllDest>$(_InsightsDllDestDir)\$(_InsightsResourceDllName)</_InsightsDllDest>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(_InsightsMsixPath)')"
+           Text="DeployWinAppRuntimeInsightsResourceDll: framework MSIX not found at $(_InsightsMsixPath) - did a WindowsAppSDK bump change the Runtime package version or MSIX filename?" />
+    <!-- Include filter makes this extract just the one 34 KB DLL, not the whole 44 MB archive. -->
+    <Unzip Condition="!Exists('$(_InsightsDllDest)')"
+           SourceFiles="$(_InsightsMsixPath)"
+           DestinationFolder="$(_InsightsDllDestDir)"
+           Include="$(_InsightsResourceDllName)"
+           OverwriteReadOnlyFiles="true" />
+    <Error Condition="!Exists('$(_InsightsDllDest)')"
+           Text="DeployWinAppRuntimeInsightsResourceDll: $(_InsightsResourceDllName) was not found inside $(_InsightsMsixPath)." />
+    <ItemGroup>
+      <None Include="$(_InsightsDllDest)">
+        <Link>$(_InsightsResourceDllName)</Link>
+        <TargetPath>$(_InsightsResourceDllName)</TargetPath>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+    </ItemGroup>
+  </Target>
+</Project>

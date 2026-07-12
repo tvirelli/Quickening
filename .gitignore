@@ -1,0 +1,81 @@
+# ─────────────────────────────────────────────────────────────
+# Quickening — .gitignore
+# This repo is intentionally app-only: source to review, plus what's
+# needed to build and distribute. Everything website/design/marketing/
+# internal and every secret or build artifact stays out.
+# ─────────────────────────────────────────────────────────────
+
+# ---- Secrets & credentials (NEVER commit) ----
+secrets.php
+*.env
+.env
+.env.*
+appsettings.*.local.json
+*.pfx
+*.snk
+*.p12
+*.key
+
+# ---- Build output & IDE ----
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+build/
+[Pp]ublish/
+.vs/
+.vscode/
+.local/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.cache
+*.log
+
+# ---- MSIX / packaging / installer artifacts ----
+AppPackages/
+BundleArtifacts/
+*.appx
+*.appxbundle
+*.appxupload
+*.msix
+*.msixbundle
+*.msixupload
+*.cer
+# Installer + Velopack release output (published to GitHub Releases, not the repo)
+/files/
+Releases/
+*.exe
+*.nupkg
+
+# ---- Node / tooling ----
+node_modules/
+package-lock.json
+
+# ---- Agent / session data ----
+.claude/
+.playwright-mcp/
+
+# ---- NOT part of the public app repo (website / design / marketing / internal) ----
+/website/
+/blog-content/
+/blog-images/
+/design-handoff/
+/docs/
+/Gemini 2 Screenshots/
+/new-screens/
+/social-profiles/
+/coffee/
+/tray-menus/
+markdown-blog-spec.md
+# loose marketing/source images at the repo root
+/highlander-poster.png
+/icon.png
+/logo.png
+/og-image.png

@@ -1,0 +1,60 @@
+<Page
+    x:Class="Quickening.App.Views.EmptyFolderPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Quickening.App.Controls"
+    Background="Transparent">
+
+    <!--
+        Screen 3c in design-handoff/Quickening Screens.dc.html - reached when
+        the picked folder has no readable files (empty, or permission-denied)
+        before a scan is even attempted. Unlike 3a/3b/3d, 3c's own markup has
+        no ambient radial-gradient glow div, so none is drawn here either.
+    -->
+    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,118,0,0">
+        <!-- Dashed empty-folder badge: 120px circle, rgba(255,255,255,.04) fill, dashed rgba(255,255,255,.2) border, per 3c -->
+        <Grid Width="120" Height="120" HorizontalAlignment="Center">
+            <Ellipse Fill="#0AFFFFFF" Stroke="#33FFFFFF" StrokeThickness="1.5" StrokeDashArray="4,3" />
+            <Viewbox Width="46" Height="40">
+                <Canvas Width="46" Height="40">
+                    <Rectangle Canvas.Left="4" Canvas.Top="10" Width="38" Height="26" RadiusX="4" RadiusY="4"
+                               Stroke="{StaticResource CategoryOtherBrush}" StrokeThickness="2.5" />
+                    <Rectangle Canvas.Left="4" Canvas.Top="4" Width="16" Height="8" RadiusX="3" RadiusY="3"
+                               Fill="{StaticResource CategoryOtherBrush}" />
+                </Canvas>
+            </Viewbox>
+        </Grid>
+
+        <TextBlock Text="Nothing in here but echoes." HorizontalAlignment="Center" Margin="0,32,0,0"
+                   FontFamily="{StaticResource DisplayFontFamily}"
+                   FontSize="{StaticResource FontSizeEmptyStateHeadline}" FontWeight="Bold"
+                   CharacterSpacing="{StaticResource TrackingTight1px}"
+                   Foreground="{StaticResource TextHeadingBrush}" />
+
+        <TextBlock x:Name="SubtitleText" HorizontalAlignment="Center" Margin="0,12,0,0"
+                   FontSize="{StaticResource FontSizeBody}" Foreground="{StaticResource TextMutedBrush}"
+                   TextAlignment="Center" TextWrapping="Wrap" MaxWidth="640" />
+
+        <!-- Admin-hint chip -->
+        <Border HorizontalAlignment="Center" Margin="0,24,0,0" Padding="20,12" CornerRadius="14"
+                Background="{StaticResource SurfaceCardBrush}" BorderBrush="{StaticResource SurfaceCardBorderBrush}"
+                BorderThickness="1">
+            <TextBlock Text="If it shouldn't be empty, try running Quickening as administrator."
+                       FontSize="13" Foreground="{StaticResource TextMutedBrush}" />
+        </Border>
+
+        <StackPanel Orientation="Horizontal" Spacing="16" HorizontalAlignment="Center" Margin="0,48,0,0">
+            <Button Click="PickDifferentFolder_Click" Style="{StaticResource GradientPillButtonStyle}">
+                <Border controls:PillCornerRadius.Enabled="True" Padding="44,16" Background="{StaticResource CtaGradientBrush}">
+                    <TextBlock Text="Pick a different folder" FontFamily="{StaticResource DisplayFontFamily}"
+                               FontSize="{StaticResource FontSizeCta}" FontWeight="Bold" Foreground="White" />
+                </Border>
+            </Button>
+            <Button Content="Back home" Click="BackHome_Click" Padding="30,16"
+                    controls:PillCornerRadius.Enabled="True" Background="Transparent"
+                    Foreground="{StaticResource TextBodyEmphasisBrush}"
+                    FontFamily="{StaticResource DisplayFontFamily}" FontSize="16" FontWeight="SemiBold"
+                    BorderBrush="{StaticResource SecondaryButtonBorderBrush}" BorderThickness="1.5" />
+        </StackPanel>
+    </StackPanel>
+</Page>

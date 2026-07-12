@@ -1,0 +1,365 @@
+<Page
+    x:Class="Quickening.App.Views.LargeFilesResultsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:converters="using:Quickening.App.Converters"
+    xmlns:controls="using:Quickening.App.Controls"
+    mc:Ignorable="d"
+    NavigationCacheMode="Enabled">
+
+    <!--
+        Screen 2h in design-handoff/Quickening Screens.dc.html - Large Files
+        results. Flat, biggest-first list (no grouping - behavioral rule 5:
+        "Large Files = flat, biggest-first, no recommend"), modeled closely
+        on ResultsPage.xaml's (Task 8) patterns/converters/styles but with a
+        single continuous bordered ListView instead of a group-card wrapper.
+        Flat background per DESIGN-SPEC.md §1, same as ResultsPage.
+    -->
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+        <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
+        <converters:CategoryIconTemplateConverter x:Key="CategoryIconTemplateConverter" />
+        <converters:CategoryFillBrushConverter x:Key="CategoryFillBrushConverter" />
+        <converters:FileNameFromPathConverter x:Key="FileNameFromPathConverter" />
+        <converters:DirectoryFromPathConverter x:Key="DirectoryFromPathConverter" />
+        <converters:LastWriteDateConverter x:Key="LastWriteDateConverter" />
+        <converters:FileSizeConverter x:Key="FileSizeConverter" />
+        <converters:RiskyPathVisibilityConverter x:Key="RiskyPathVisibilityConverter" />
+        <converters:InverseBoolConverter x:Key="InverseBoolConverter" />
+        <converters:BoolToDoubleConverter x:Key="NetworkRowOpacityConverter" TrueValue="0.55" FalseValue="1" />
+
+        <converters:BoolToBrushConverter x:Key="RowSelectedFillConverter"
+                                          TrueBrush="{StaticResource SurfaceRowSelectedBrush}" FalseBrush="Transparent" />
+
+        <converters:BoolToBrushConverter x:Key="ChipBackgroundConverter"
+                                          TrueBrush="{StaticResource AccentBrush}" FalseBrush="Transparent" />
+        <converters:BoolToBrushConverter x:Key="ChipBorderConverter"
+                                          TrueBrush="{StaticResource AccentBrush}"
+                                          FalseBrush="{StaticResource SurfaceCardBorderBrush}" />
+        <converters:BoolToBrushConverter x:Key="ChipForegroundConverter"
+                                          TrueBrush="White" FalseBrush="{StaticResource TextMutedBrush}" />
+
+        <Style x:Key="CategoryChipItemStyle" TargetType="ListViewItem">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+
+        <Style x:Key="BulkChipButtonStyle" TargetType="Button">
+            <Setter Property="Padding" Value="14,6" />
+            <Setter Property="controls:PillCornerRadius.Enabled" Value="True" />
+            <Setter Property="Background" Value="{StaticResource SurfaceCardBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource SurfaceCardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+            <Setter Property="FontFamily" Value="{StaticResource BodyFontFamily}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+
+        <!-- Untinted size field (2h's "max — MB") -->
+        <Style x:Key="SizeFilterNumberBoxStyle" TargetType="NumberBox">
+            <Setter Property="Width" Value="92" />
+            <Setter Property="SpinButtonPlacementMode" Value="Compact" />
+            <Setter Property="Background" Value="{StaticResource SurfaceCardBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource SurfaceCardBorderBrush}" />
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusInput}" />
+            <Setter Property="FontFamily" Value="{StaticResource MonoFontFamily}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+        </Style>
+
+        <!--
+            Tinted/active size field (2h's pre-filled "min 500 MB" box -
+            rgba(46,107,255,.12) fill + rgba(46,107,255,.5) border) - the min
+            filter starts pre-filled with the scan's own threshold, so it
+            starts in this "active" visual state rather than the placeholder
+            look SizeFilterNumberBoxStyle uses.
+        -->
+        <Style x:Key="SizeFilterActiveNumberBoxStyle" TargetType="NumberBox" BasedOn="{StaticResource SizeFilterNumberBoxStyle}">
+            <Setter Property="Background" Value="{StaticResource AccentSelectedFillBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextBodyEmphasisBrush}" />
+        </Style>
+
+        <!-- Path-contains free-text field (new-screens 4i) -->
+        <Style x:Key="DateFilterTextBoxStyle" TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource SurfaceCardBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource SurfaceCardBorderBrush}" />
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusInput}" />
+            <Setter Property="FontFamily" Value="{StaticResource MonoFontFamily}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+        </Style>
+    </Page.Resources>
+
+    <!-- Explicit flat background - see ResultsPage.xaml's identical comment. -->
+    <Grid Background="{StaticResource BgBaseBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header: inline back-link + screen title + stats + Export CSV (screen 2h, Export per 4i) -->
+        <Grid Grid.Row="0" Padding="28,10,28,16" ColumnSpacing="18">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="18" VerticalAlignment="Center">
+                <Button Click="BackToSummary_Click" Background="Transparent" BorderThickness="0" Padding="0"
+                        AutomationProperties.Name="Back to Summary">
+                    <TextBlock Text="&#x2190; Summary" FontFamily="{StaticResource BodyFontFamily}"
+                               FontSize="13.5" FontWeight="Bold" Foreground="{StaticResource AccentLightBrush}" />
+                </Button>
+                <TextBlock x:Name="TitleText" FontFamily="{StaticResource DisplayFontFamily}"
+                           FontSize="{StaticResource FontSizeScreenTitle}" FontWeight="Bold"
+                           Foreground="{StaticResource TextHeadingBrush}" />
+                <TextBlock x:Name="SummaryText" FontFamily="{StaticResource BodyFontFamily}"
+                           FontSize="13" Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
+            </StackPanel>
+            <Button Grid.Column="1" Click="ExportCsv_Click" Style="{StaticResource BulkChipButtonStyle}"
+                    Content="&#x21A7; Export CSV" AutomationProperties.Name="Export CSV" VerticalAlignment="Center" />
+        </Grid>
+
+        <!-- Category filter chips (with "+N" overflow) + size-range filters -->
+        <Grid Grid.Row="1" Padding="28,0,28,12" ColumnSpacing="10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <ListView x:Name="CategoryChipsList" Grid.Column="0" SelectionMode="Single"
+                      SelectionChanged="CategoryChipsList_SelectionChanged"
+                      ItemContainerStyle="{StaticResource CategoryChipItemStyle}"
+                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                      HorizontalAlignment="Left">
+                <ListView.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="6" />
+                    </ItemsPanelTemplate>
+                </ListView.ItemsPanel>
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <Border Padding="14,7" controls:PillCornerRadius.Enabled="True" BorderThickness="1"
+                                Background="{Binding IsSelected, Converter={StaticResource ChipBackgroundConverter}}"
+                                BorderBrush="{Binding IsSelected, Converter={StaticResource ChipBorderConverter}}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Ellipse Width="8" Height="8" Fill="{Binding SwatchBrush}"
+                                         Visibility="{Binding HasSwatch, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                <TextBlock Text="{Binding Label}" FontFamily="{StaticResource BodyFontFamily}"
+                                           FontSize="12.5" FontWeight="SemiBold"
+                                           Foreground="{Binding IsSelected, Converter={StaticResource ChipForegroundConverter}}" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Text="Size" FontFamily="{StaticResource BodyFontFamily}" FontSize="12" FontWeight="SemiBold"
+                           Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
+                <NumberBox x:Name="MinSizeBox" PlaceholderText="min — MB" Style="{StaticResource SizeFilterActiveNumberBoxStyle}"
+                           ValueChanged="FilterChanged" />
+                <NumberBox x:Name="MaxSizeBox" PlaceholderText="max — MB" Style="{StaticResource SizeFilterNumberBoxStyle}"
+                           ValueChanged="FilterChanged" />
+                <Button Content="Clear" Click="ClearFilters_Click" Background="Transparent" BorderThickness="0" Padding="4,0"
+                        Foreground="{StaticResource AccentLightBrush}" FontFamily="{StaticResource BodyFontFamily}"
+                        FontSize="12" FontWeight="Bold" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Path-contains search (new-screens 4i) -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Padding="28,0,28,12">
+            <TextBlock Text="Path contains" FontFamily="{StaticResource BodyFontFamily}" FontSize="12"
+                       FontWeight="SemiBold" Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
+            <TextBox x:Name="PathContainsBox" PlaceholderText="folder or file name…" Width="220"
+                     Style="{StaticResource DateFilterTextBoxStyle}" TextChanged="FilterChanged" />
+        </StackPanel>
+
+        <!-- Bulk-select toolbar - no "Recommended applied" pill: Large Files never has one -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" Padding="28,0,28,12">
+            <TextBlock Text="Select:" FontFamily="{StaticResource BodyFontFamily}" FontSize="12" FontWeight="SemiBold"
+                       Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
+            <Button Content="All" Click="SelectAll_Click" Style="{StaticResource BulkChipButtonStyle}"
+                    AutomationProperties.Name="Select All" />
+            <Button Content="None" Click="SelectNone_Click" Style="{StaticResource BulkChipButtonStyle}"
+                    AutomationProperties.Name="Select None" />
+            <Button Content="Invert" Click="InvertSelection_Click" Style="{StaticResource BulkChipButtonStyle}"
+                    AutomationProperties.Name="Invert Selection" />
+            <Button x:Name="SelectOverButton" Click="SelectOverThreshold_Click" Style="{StaticResource BulkChipButtonStyle}"
+                    AutomationProperties.Name="Select over threshold" />
+            <Button Content="By folder…" Click="SelectByFolder_Click" Style="{StaticResource BulkChipButtonStyle}"
+                    AutomationProperties.Name="Select By Folder" />
+            <TextBlock x:Name="ShowingCountText" Margin="8,0,0,0" VerticalAlignment="Center"
+                       FontFamily="{StaticResource BodyFontFamily}" FontSize="12" Foreground="{StaticResource TextDisabledHintBrush}" />
+        </StackPanel>
+
+        <!-- Flat, continuous bordered list (screen 2h) - one Border, no per-group card wrapper -->
+        <Grid Grid.Row="4" Padding="28,0,28,12">
+            <Border CornerRadius="{StaticResource RadiusCard}" Background="#09FFFFFF" BorderBrush="#12FFFFFF" BorderThickness="1">
+                <ListView x:Name="FilesListView" SelectionMode="None" IsItemClickEnabled="False"
+                          ShowsScrollingPlaceholders="False"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <!-- Suppress the container hover/press/selection tint (rows draw their own) so it doesn't flash grey during scroll. -->
+                    <ListView.Resources>
+                        <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBorderBrushPointerOver" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBorderBrushPressed" Color="Transparent" />
+                        <SolidColorBrush x:Key="ListViewItemBorderBrushSelected" Color="Transparent" />
+                    </ListView.Resources>
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0" />
+                            <Setter Property="MinHeight" Value="0" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Border Padding="18,11" BorderThickness="0,1,0,0" BorderBrush="#0DFFFFFF"
+                                    Background="{Binding IsSelected, Converter={StaticResource RowSelectedFillConverter}}"
+                                    Opacity="{Binding IsOnNetworkDrive, Converter={StaticResource NetworkRowOpacityConverter}}">
+                                <Border.ContextFlyout>
+                                    <!--
+                                        See ResultsPage.xaml's identical comment on
+                                        FileRowContextMenu_Opening - ContextFlyout content
+                                        doesn't inherit its target's DataContext in WinUI,
+                                        so the Opening handler copies it over explicitly.
+                                    -->
+                                    <MenuFlyout Opening="FileRowContextMenu_Opening">
+                                        <MenuFlyoutItem Text="Open file location" Click="OpenFileLocation_Click" />
+                                        <MenuFlyoutItem Text="Preview" Click="Preview_Click" />
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="Select this file" Click="SelectThisFile_Click" />
+                                    </MenuFlyout>
+                                </Border.ContextFlyout>
+
+                                <Grid ColumnSpacing="14">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="20" />
+                                        <ColumnDefinition Width="44" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="90" />
+                                        <ColumnDefinition Width="90" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <CheckBox Grid.Column="0" Width="20" Height="20" Padding="0"
+                                              MinWidth="0" MinHeight="0"
+                                              IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                              IsEnabled="{Binding IsOnNetworkDrive, Converter={StaticResource InverseBoolConverter}}"
+                                              Checked="FileSelectionChanged" Unchecked="FileSelectionChanged"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+                                    <Border Grid.Column="1" Width="44" Height="44"
+                                            CornerRadius="{StaticResource RadiusThumbnail}"
+                                            Background="{Binding Category, Converter={StaticResource CategoryFillBrushConverter}}"
+                                            Tapped="FileThumbnail_Tapped">
+                                        <Grid>
+                                            <ContentControl Content="{Binding Category}"
+                                                ContentTemplate="{Binding Category, Converter={StaticResource CategoryIconTemplateConverter}}"
+                                                Visibility="{Binding IsImage, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                                HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            <Image Source="{Binding ThumbnailSource}" Stretch="UniformToFill"
+                                                   Visibility="{Binding IsImage, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                   ImageFailed="FileThumbnail_ImageFailed" />
+                                        </Grid>
+                                    </Border>
+
+                                    <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="1">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{Binding Path, Converter={StaticResource FileNameFromPathConverter}}"
+                                                       FontFamily="{StaticResource BodyFontFamily}"
+                                                       FontSize="{StaticResource FontSizeRowFilename}" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource TextBodyBrush}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <Border Padding="9,2" controls:PillCornerRadius.Enabled="True"
+                                                    Background="{StaticResource WarningFillBrush}"
+                                                    BorderBrush="{StaticResource WarningFillBorderBrush}" BorderThickness="1"
+                                                    VerticalAlignment="Center"
+                                                    Visibility="{Binding Path, Converter={StaticResource RiskyPathVisibilityConverter}}">
+                                                <TextBlock Text="⚠ PROGRAM FILE" FontFamily="{StaticResource BodyFontFamily}"
+                                                           FontSize="{StaticResource FontSizeMicroPill}" FontWeight="ExtraBold"
+                                                           Foreground="{StaticResource WarningBrush}" />
+                                            </Border>
+                                            <Border Padding="9,2" controls:PillCornerRadius.Enabled="True"
+                                                    Background="{StaticResource SurfaceCardBrush}"
+                                                    BorderBrush="{StaticResource SurfaceCardBorderBrush}" BorderThickness="1"
+                                                    VerticalAlignment="Center"
+                                                    Visibility="{Binding IsOnNetworkDrive, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                <TextBlock Text="&#x2601; NETWORK DRIVE — can't remove from here"
+                                                           FontFamily="{StaticResource BodyFontFamily}"
+                                                           FontSize="{StaticResource FontSizeMicroPill}" FontWeight="ExtraBold"
+                                                           Foreground="{StaticResource TextFaintBrush}" />
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding Path, Converter={StaticResource DirectoryFromPathConverter}}"
+                                                   FontFamily="{StaticResource MonoFontFamily}"
+                                                   FontSize="{StaticResource FontSizeFilePath}"
+                                                   Foreground="{StaticResource TextDisabledHintBrush}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+
+                                    <TextBlock Grid.Column="4"
+                                               Text="{Binding LastWriteTimeUtc, Converter={StaticResource LastWriteDateConverter}}"
+                                               FontFamily="{StaticResource BodyFontFamily}" FontSize="12"
+                                               Foreground="{StaticResource TextFaintBrush}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center" />
+
+                                    <TextBlock Grid.Column="5"
+                                               Text="{Binding SizeBytes, Converter={StaticResource FileSizeConverter}}"
+                                               FontFamily="{StaticResource DisplayFontFamily}"
+                                               FontSize="{StaticResource FontSizeRowSize}" FontWeight="Bold"
+                                               Foreground="{StaticResource TextHeadingBrush}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Border>
+        </Grid>
+
+        <!-- Sticky footer: total + selected count + risky-file callout + Remove Selected (screen 2h) -->
+        <Border Grid.Row="5" Background="{StaticResource FooterBarAcrylicBrush}" BorderBrush="{StaticResource SurfaceCardBorderBrush}"
+                BorderThickness="0,1,0,0" Padding="28,16">
+            <Grid>
+                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" HorizontalAlignment="Left">
+                    <TextBlock x:Name="SelectedSizeText" FontFamily="{StaticResource DisplayFontFamily}"
+                               FontSize="{StaticResource FontSizeFooterStat}" FontWeight="Bold"
+                               Foreground="{StaticResource SuccessBrush}" VerticalAlignment="Bottom" />
+                    <TextBlock x:Name="SelectedCalloutText" FontFamily="{StaticResource BodyFontFamily}"
+                               FontSize="13.5" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Bottom" />
+                </StackPanel>
+                <Button x:Name="RemoveButton" Click="RemoveButton_Click" HorizontalAlignment="Right"
+                        Style="{StaticResource GradientPillButtonStyle}">
+                    <Border controls:PillCornerRadius.Enabled="True" Padding="40,14" Background="{StaticResource CtaGradientBrush}">
+                        <TextBlock Text="Remove Selected &#x26A1;" FontFamily="{StaticResource DisplayFontFamily}"
+                                   FontSize="16" FontWeight="Bold" Foreground="White" />
+                    </Border>
+                </Button>
+            </Grid>
+        </Border>
+
+        <controls:MediaComparisonViewer x:Name="ComparisonViewer" Grid.Row="0" Grid.RowSpan="6" Visibility="Collapsed" />
+    </Grid>
+</Page>

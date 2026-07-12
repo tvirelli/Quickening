@@ -1,0 +1,373 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Quickening.App.Controls">
+
+    <!--
+        "Nebula Playful" token set - see design-handoff/DESIGN-SPEC.md, the
+        canonical source (this file must match it exactly, not approximate
+        it). Screens referenced by id are in
+        design-handoff/Quickening Screens.dc.html.
+    -->
+
+    <FontFamily x:Key="DisplayFontFamily">ms-appx:///Assets/Fonts/SpaceGrotesk.ttf#Space Grotesk</FontFamily>
+    <FontFamily x:Key="BodyFontFamily">ms-appx:///Assets/Fonts/Manrope.ttf#Manrope</FontFamily>
+    <FontFamily x:Key="MonoFontFamily">Cascadia Mono</FontFamily>
+
+    <!-- Core surfaces - §1 "Core" -->
+    <Color x:Key="BgBaseColor">#0B1026</Color>
+    <SolidColorBrush x:Key="BgBaseBrush" Color="{StaticResource BgBaseColor}" />
+    <LinearGradientBrush x:Key="BgGradientBrush" StartPoint="0,0" EndPoint="0.35,1">
+        <GradientStop Color="{StaticResource BgBaseColor}" Offset="0" />
+        <GradientStop Color="#10173A" Offset="0.55" />
+        <GradientStop Color="{StaticResource BgBaseColor}" Offset="1" />
+    </LinearGradientBrush>
+    <Color x:Key="BgElevatedColor">#131B3C</Color>
+    <SolidColorBrush x:Key="BgElevatedBrush" Color="{StaticResource BgElevatedColor}" />
+    <Color x:Key="BgMenuColor">#151D3E</Color>
+    <SolidColorBrush x:Key="BgMenuBrush" Color="{StaticResource BgMenuColor}" />
+    <SolidColorBrush x:Key="SurfaceCardBrush" Color="#0BFFFFFF" />
+    <SolidColorBrush x:Key="SurfaceCardBorderBrush" Color="#14FFFFFF" />
+    <SolidColorBrush x:Key="SurfaceRowSelectedBrush" Color="#0D2E6BFF" />
+    <SolidColorBrush x:Key="ScrimDialogBrush" Color="#99050814" />
+    <SolidColorBrush x:Key="ScrimMediaPreviewBrush" Color="#B8050814" />
+
+    <!--
+        ContentDialogSmokeFill overrides the system default smoke/backdrop
+        the WinUI3 ContentDialog control draws behind itself - it's a
+        themed resource the framework's own default template looks up by
+        this exact name, not something a Style Setter on ContentDialog can
+        reach (Style only affects the dialog's own visible card, not the
+        separate full-screen scrim layer). Reusing ScrimDialogBrush's color
+        here (rather than a third literal) keeps both in sync automatically.
+    -->
+    <StaticResource x:Key="ContentDialogSmokeFill" ResourceKey="ScrimDialogBrush" />
+
+    <!-- Accent - §1 "Accent (brand blue)" -->
+    <Color x:Key="AccentColor">#2E6BFF</Color>
+    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
+    <Color x:Key="AccentLightColor">#7FADFF</Color>
+    <SolidColorBrush x:Key="AccentLightBrush" Color="{StaticResource AccentLightColor}" />
+    <Color x:Key="AccentLighterColor">#9FBBFF</Color>
+    <SolidColorBrush x:Key="AccentLighterBrush" Color="{StaticResource AccentLighterColor}" />
+    <SolidColorBrush x:Key="AccentSelectedFillBrush" Color="#212E6BFF" />
+    <SolidColorBrush x:Key="AccentSelectedFillBorderBrush" Color="{StaticResource AccentColor}" />
+    <x:Double x:Key="AccentSelectedFillBorderThickness">1.5</x:Double>
+    <LinearGradientBrush x:Key="CtaGradientBrush" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#4D8DFF" Offset="0" />
+        <GradientStop Color="#2557E0" Offset="0.6" />
+        <GradientStop Color="#6648FF" Offset="1" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="CtaSmallGradientBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#3D77FF" Offset="0" />
+        <GradientStop Color="#2557E0" Offset="1" />
+    </LinearGradientBrush>
+    <!--
+        cta.shadow ("0 10px 34px rgba(46,107,255,0.45)") - per DESIGN-SPEC.md
+        §9 this is applied via AttachedDropShadow / Composition DropShadow in
+        code/Style, not a literal brush. Exposing its color/blur/offset as
+        named tokens here so later tasks configure the shadow consistently
+        instead of re-deriving these numbers.
+    -->
+    <Color x:Key="CtaShadowColor">#732E6BFF</Color>
+    <x:Double x:Key="CtaShadowBlurRadius">34</x:Double>
+    <x:Double x:Key="CtaShadowOffsetY">10</x:Double>
+
+    <!-- Text - §1 "Text" -->
+    <SolidColorBrush x:Key="TextHeadingBrush" Color="#F2F5FF" />
+    <SolidColorBrush x:Key="TextBodyBrush" Color="#E8EDFF" />
+    <SolidColorBrush x:Key="TextBodyEmphasisBrush" Color="#DCE6FF" />
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#C6CEE8" />
+    <SolidColorBrush x:Key="TextMutedBrush" Color="#98A2C8" />
+    <SolidColorBrush x:Key="TextFaintBrush" Color="#7A84A6" />
+    <SolidColorBrush x:Key="TextDisabledHintBrush" Color="#6B7699" />
+
+    <!-- Semantic - §1 "Semantic" -->
+    <Color x:Key="SuccessColor">#5EE7B7</Color>
+    <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}" />
+    <Color x:Key="WarningColor">#FF8A5C</Color>
+    <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}" />
+    <SolidColorBrush x:Key="SuccessFillBrush" Color="#175EE7B7" />
+    <SolidColorBrush x:Key="SuccessFillBorderBrush" Color="#4D5EE7B7" />
+    <SolidColorBrush x:Key="WarningFillBrush" Color="#1FFF8A5C" />
+    <SolidColorBrush x:Key="WarningFillBorderBrush" Color="#66FF8A5C" />
+
+    <!--
+        Media Preview panel borders (screen 2j: "kept panel border
+        rgba(94,231,183,.5), selected rgba(46,107,255,.6)") - neither alpha
+        matches an existing success/accent fill-border token above (those are
+        0.3/0.4 respectively, tuned for the smaller inline chip/pill use
+        case), so these are their own literal tokens rather than reusing
+        SuccessFillBorderBrush/AccentSelectedFillBorderBrush.
+    -->
+    <SolidColorBrush x:Key="MediaPreviewKeptBorderBrush" Color="#805EE7B7" />
+    <SolidColorBrush x:Key="MediaPreviewSelectedBorderBrush" Color="#992E6BFF" />
+
+    <!-- Category hues - §1 "Category hues" (must match Controls/CategoryColors.cs - Task 2) -->
+    <Color x:Key="CategoryImageColor">#FF7AB6</Color>
+    <SolidColorBrush x:Key="CategoryImageBrush" Color="{StaticResource CategoryImageColor}" />
+    <SolidColorBrush x:Key="CategoryImageFillBrush" Color="#24FF7AB6" />
+    <Color x:Key="CategoryVideoColor">#8C6EFF</Color>
+    <SolidColorBrush x:Key="CategoryVideoBrush" Color="{StaticResource CategoryVideoColor}" />
+    <SolidColorBrush x:Key="CategoryVideoFillBrush" Color="#2E8C6EFF" />
+    <Color x:Key="CategoryAudioColor">#5EE7B7</Color>
+    <SolidColorBrush x:Key="CategoryAudioBrush" Color="{StaticResource CategoryAudioColor}" />
+    <SolidColorBrush x:Key="CategoryAudioFillBrush" Color="#1F5EE7B7" />
+    <Color x:Key="CategoryDocumentColor">#FFD666</Color>
+    <SolidColorBrush x:Key="CategoryDocumentBrush" Color="{StaticResource CategoryDocumentColor}" />
+    <SolidColorBrush x:Key="CategoryDocumentFillBrush" Color="#21FFD666" />
+    <Color x:Key="CategoryArchiveColor">#40C4FF</Color>
+    <SolidColorBrush x:Key="CategoryArchiveBrush" Color="{StaticResource CategoryArchiveColor}" />
+    <SolidColorBrush x:Key="CategoryArchiveFillBrush" Color="#2440C4FF" />
+    <Color x:Key="CategoryExecutableColor">#FF8A5C</Color>
+    <SolidColorBrush x:Key="CategoryExecutableBrush" Color="{StaticResource CategoryExecutableColor}" />
+    <SolidColorBrush x:Key="CategoryExecutableFillBrush" Color="#1AFF8A5C" />
+    <Color x:Key="CategoryOtherColor">#8B96BC</Color>
+    <SolidColorBrush x:Key="CategoryOtherBrush" Color="{StaticResource CategoryOtherColor}" />
+    <SolidColorBrush x:Key="CategoryOtherFillBrush" Color="#1F8B96BC" />
+
+    <!-- Shape - §3 -->
+    <CornerRadius x:Key="RadiusWindow">12</CornerRadius>
+    <CornerRadius x:Key="RadiusCard">18</CornerRadius>
+    <CornerRadius x:Key="RadiusDialog">24</CornerRadius>
+    <CornerRadius x:Key="RadiusTile">16</CornerRadius>
+    <CornerRadius x:Key="RadiusInput">12</CornerRadius>
+    <CornerRadius x:Key="RadiusMenu">12</CornerRadius>
+    <!--
+        No RadiusPill token - a literal CornerRadius="999" doesn't render as
+        a proper capsule in WinUI3 the way CSS border-radius:999px does (it
+        doesn't clamp per-axis, so wide/short elements render as a bulging
+        ellipse instead of a stadium shape). Every pill-shaped element uses
+        Controls:PillCornerRadius.Enabled="True" instead, which pins
+        CornerRadius to exactly half of the element's own live ActualHeight.
+    -->
+    <CornerRadius x:Key="RadiusCheckbox">6</CornerRadius>
+    <CornerRadius x:Key="RadiusThumbnail">10</CornerRadius>
+    <CornerRadius x:Key="RadiusFolderTileIcon">14</CornerRadius>
+
+    <!-- Spacing / layout constants - §3 "Shape, spacing, elevation" -->
+    <x:Double x:Key="TitleBarHeight">48</x:Double>
+    <x:Double x:Key="TitleBarIconSize">22</x:Double>
+    <x:Double x:Key="CaptionButtonWidth">46</x:Double>
+    <x:Double x:Key="ScreenPaddingHorizontal">28</x:Double>
+    <x:Double x:Key="FolderTileWidth">218</x:Double>
+    <x:Double x:Key="FolderTilePadding">18</x:Double>
+    <x:Double x:Key="FolderTileIconSize">44</x:Double>
+    <x:Double x:Key="RowCheckboxSize">20</x:Double>
+    <x:Double x:Key="RowThumbSize">44</x:Double>
+    <x:Double x:Key="RowGap">14</x:Double>
+    <x:Double x:Key="RowModifiedDateColumnWidth">90</x:Double>
+    <x:Double x:Key="DialogWidthConfirm">560</x:Double>
+    <x:Double x:Key="DialogWidthFailure">620</x:Double>
+    <!-- Settings' full redo (5 groups) needs far more width than a plain confirm dialog -->
+    <x:Double x:Key="DialogWidthSettings">720</x:Double>
+    <SolidColorBrush x:Key="SecondaryButtonBorderBrush" Color="#29FFFFFF" />
+    <x:Double x:Key="SecondaryButtonBorderThickness">1.5</x:Double>
+
+    <!--
+        Dialog drop shadow ("0 32px 90px rgba(0,0,0,0.7)") - same
+        AttachedDropShadow/Composition pattern as CtaShadow* above.
+    -->
+    <Color x:Key="DialogShadowColor">#B3000000</Color>
+    <x:Double x:Key="DialogShadowBlurRadius">90</x:Double>
+    <x:Double x:Key="DialogShadowOffsetY">32</x:Double>
+
+    <!--
+        Footer bar blur ("backdrop-filter") - §9 explicitly calls for an
+        in-app AcrylicBrush rather than a literal color; not a CSS blur we
+        can transcribe as a flat value.
+    -->
+    <AcrylicBrush x:Key="FooterBarAcrylicBrush"
+                  TintColor="#0D1430"
+                  TintOpacity="0.9"
+                  FallbackColor="#0D1430" />
+
+    <!-- Typography sizes - §2 (x:Double so FontSize="{StaticResource ...}" binds) -->
+    <x:Double x:Key="FontSizeCelebrationHeadline">72</x:Double>
+    <x:Double x:Key="FontSizeSummaryHeadline">52</x:Double>
+    <x:Double x:Key="FontSizeEmptyStateHeadline">48</x:Double>
+    <x:Double x:Key="FontSizeHomeHeadline">40</x:Double>
+    <x:Double x:Key="FontSizeProgressHeadline">30</x:Double>
+    <x:Double x:Key="FontSizeDialogTitle">26</x:Double>
+    <x:Double x:Key="FontSizeScreenTitle">22</x:Double>
+    <x:Double x:Key="FontSizeProgressPercent">56</x:Double>
+    <x:Double x:Key="FontSizeFooterStat">24</x:Double>
+    <x:Double x:Key="FontSizeRowSize">16</x:Double>
+    <x:Double x:Key="FontSizeCta">17</x:Double>
+    <x:Double x:Key="FontSizeBody">16</x:Double>
+    <x:Double x:Key="FontSizeRowFilename">13.5</x:Double>
+    <x:Double x:Key="FontSizeChip">13</x:Double>
+    <x:Double x:Key="FontSizeMicroPill">10.5</x:Double>
+    <!-- Additional §2 sizes not named individually in the plan skeleton -->
+    <x:Double x:Key="FontSizeFilePath">12.5</x:Double>
+
+    <!-- CharacterSpacing is 1/1000 em - see DESIGN-SPEC.md §9 "Fonts" for the conversion table -->
+    <x:Int32 x:Key="TrackingTight1px">-19</x:Int32>
+    <x:Int32 x:Key="TrackingTightHalfPx">-12</x:Int32>
+    <x:Int32 x:Key="TrackingTight2px">-28</x:Int32>
+
+    <!--
+        Shared ContentDialog chrome (screens 2i/2m: #131B3C, r24, 1px
+        rgba(255,255,255,0.1) border) - both the Remove-confirmation dialog
+        and the partial-failure dialog (ResultsPage.xaml.cs, Task 9) apply
+        this instead of each re-declaring the same Background/CornerRadius/
+        BorderBrush setup. Width is set per-instance (560px confirm / 620px
+        failure, DialogWidthConfirm/DialogWidthFailure above) since it
+        differs between the two dialogs that use this style.
+    -->
+    <Style x:Key="NebulaContentDialogStyle" TargetType="ContentDialog">
+        <Setter Property="Background" Value="{StaticResource BgElevatedBrush}" />
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusDialog}" />
+        <Setter Property="BorderBrush" Value="{StaticResource SurfaceCardBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="FontFamily" Value="{StaticResource BodyFontFamily}" />
+    </Style>
+
+    <!--
+        Pill CTA button for a ContentDialog's PrimaryButtonStyle (screen 2i's
+        gated "Remove N files" button) - a full ControlTemplate rather than
+        plain property Setters because the disabled look (28%-alpha blue fill,
+        45%-alpha white text, per 2i) needs its own VisualState; the default
+        Button template's built-in Disabled state pulls from theme resources
+        that a plain Setter can't override on a ContentDialog-owned button
+        instance.
+    -->
+    <Style x:Key="PillCtaButtonStyle" TargetType="Button">
+        <Setter Property="FontFamily" Value="{StaticResource DisplayFontFamily}" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="Padding" Value="32,13" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="controls:HoverLift.Enabled" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="RootBorder" Background="{StaticResource CtaGradientBrush}"
+                            controls:PillCornerRadius.Enabled="True">
+                        <ContentPresenter x:Name="RootContentPresenter" Content="{TemplateBinding Content}"
+                                          Foreground="White" Padding="{TemplateBinding Padding}"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver" />
+                                <VisualState x:Name="Pressed" />
+                                <VisualState x:Name="Disabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="RootBorder.Background" Value="#472E6BFF" />
+                                        <Setter Target="RootContentPresenter.Foreground" Value="#73FFFFFF" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--
+        Bordered transparent pill (2i "Keep everything" / 2m "Skip them" /
+        SettingsDialog "Done"). Full ControlTemplate rather than plain
+        property Setters for the same reason as PillCtaButtonStyle above -
+        a ContentDialog-owned button's Normal-state Background/BorderBrush
+        don't reliably pick up plain Setters (the border/fill only showed
+        up once PointerOver kicked in, making the button look like bare
+        text until hovered), so this bakes Background/BorderBrush directly
+        into the template's Border instead of the Setter list.
+    -->
+    <Style x:Key="PillSecondaryButtonStyle" TargetType="Button">
+        <Setter Property="FontFamily" Value="{StaticResource BodyFontFamily}" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="FontSize" Value="14.5" />
+        <Setter Property="Padding" Value="28,13" />
+        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="RootBorder" Background="Transparent"
+                            BorderBrush="{StaticResource SecondaryButtonBorderBrush}"
+                            BorderThickness="1.5"
+                            controls:PillCornerRadius.Enabled="True">
+                        <ContentPresenter x:Name="RootContentPresenter" Content="{TemplateBinding Content}"
+                                          Foreground="{TemplateBinding Foreground}"
+                                          Padding="{TemplateBinding Padding}"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver" />
+                                <VisualState x:Name="Pressed" />
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--
+        Wrapper style for the gradient "hero" pill CTAs that host their own
+        inner gradient Border + custom content (Home's Scan CTA, Remove
+        Selected, Scan another folder, Run first scan, Try Large Files, …).
+        The reason this exists: those buttons were plain `<Button
+        Background="Transparent" BorderThickness="0" Padding="0">` using the
+        DEFAULT Button template, whose PointerOver background overlay renders
+        with the default 4px ControlCornerRadius and peeks through the pill's
+        rounded corners as a wrong-radius "glow". This template has NO
+        PointerOver/Pressed background at all (empty visual states), so that
+        glow can never appear; HoverLift supplies a deliberate, correctly
+        shaped hover instead, and Disabled just dims. Apply this style to any
+        button that wraps a CtaGradientBrush Border.
+    -->
+    <Style x:Key="GradientPillButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Stretch" />
+        <Setter Property="controls:HoverLift.Enabled" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid>
+                        <ContentPresenter x:Name="RootContentPresenter" Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          Padding="{TemplateBinding Padding}"
+                                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver" />
+                                <VisualState x:Name="Pressed" />
+                                <VisualState x:Name="Disabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="RootContentPresenter.Opacity" Value="0.5" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--
+        Vertical small gradient pill (2m "Try those N again") - never gated/
+        disabled, so plain property Setters (no ControlTemplate override)
+        are enough, unlike PillCtaButtonStyle above.
+    -->
+    <Style x:Key="PillSmallGradientButtonStyle" TargetType="Button">
+        <Setter Property="FontFamily" Value="{StaticResource DisplayFontFamily}" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="FontSize" Value="14.5" />
+        <Setter Property="Padding" Value="28,12" />
+        <Setter Property="controls:PillCornerRadius.Enabled" Value="True" />
+        <Setter Property="Background" Value="{StaticResource CtaSmallGradientBrush}" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+
+</ResourceDictionary>

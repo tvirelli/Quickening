@@ -1,0 +1,127 @@
+<Page
+    x:Class="Quickening.App.Views.ScanCompletePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Quickening.App.Controls"
+    Background="Transparent">
+
+    <!--
+        Screens 2e (Duplicates, donut) and 2f (Large Files, segmented bar)
+        share one page: eyebrow/headline/subtitle at top (text set in
+        code-behind per mode), then EITHER DuplicatesPanel (donut + legend)
+        OR BarChart (segmented bar + its own legend) below, then an action
+        row that also differs by mode (2e: Select Recommended + Review
+        Results [secondary] + New scan; 2f: Review Results [primary, no
+        Select Recommended] + New scan), then a reassurance line. The
+        title-bar icon/wordmark are drawn once by MainWindow.xaml, not
+        repeated per-page - see that file.
+    -->
+    <Grid>
+        <!--
+            Ambient radial glow, matching 2e/2f's
+            "radial-gradient(closest-side, rgba(46,107,255,0.18), rgba(46,107,255,0))"
+            positioned at roughly the top-center of the page.
+        -->
+        <Ellipse Width="800" Height="520" HorizontalAlignment="Center" VerticalAlignment="Top"
+                 Margin="0,-180,0,0" IsHitTestVisible="False">
+            <Ellipse.Fill>
+                <RadialGradientBrush>
+                    <GradientStop Color="#2E2E6BFF" Offset="0" />
+                    <GradientStop Color="#002E6BFF" Offset="1" />
+                </RadialGradientBrush>
+            </Ellipse.Fill>
+        </Ellipse>
+
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,44,0,40" MaxWidth="1160">
+            <!-- Eyebrow: uppercase text is built already-uppercase in code-behind (XAML has no text-transform) -->
+            <TextBlock x:Name="EyebrowText" HorizontalAlignment="Center" FontSize="14" FontWeight="Bold"
+                       CharacterSpacing="143" Foreground="{StaticResource AccentLightBrush}" />
+
+            <TextBlock x:Name="HeadlineText" HorizontalAlignment="Center" Margin="0,12,0,0"
+                       TextAlignment="Center" TextWrapping="Wrap" MaxWidth="900"
+                       FontFamily="{StaticResource DisplayFontFamily}"
+                       FontSize="{StaticResource FontSizeSummaryHeadline}" FontWeight="Bold"
+                       CharacterSpacing="{StaticResource TrackingTight1px}"
+                       Foreground="{StaticResource TextHeadingBrush}" />
+
+            <TextBlock x:Name="SubtitleText" HorizontalAlignment="Center" Margin="0,10,0,0"
+                       TextAlignment="Center" TextWrapping="Wrap" MaxWidth="720"
+                       FontSize="{StaticResource FontSizeBody}" Foreground="{StaticResource TextMutedBrush}" />
+
+            <!-- Duplicates mode (2e): donut + legend, side by side -->
+            <StackPanel x:Name="DuplicatesPanel" Orientation="Horizontal" Spacing="64"
+                        HorizontalAlignment="Center" Margin="0,44,0,0">
+                <controls:DonutChart x:Name="Chart" Width="240" Height="240" />
+
+                <!--
+                    2e's legend is a CSS grid of two 220px columns with a
+                    28px column gap (220+28=248, this ItemWidth) - each row
+                    is itself a flex row where the label has flex:1 (it
+                    stretches to fill the column, pushing SizeText flush
+                    against the column's right edge) rather than a fixed-
+                    width label immediately followed by the size text.
+                -->
+                <ItemsControl x:Name="BreakdownList" VerticalAlignment="Center">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="2"
+                                           ItemWidth="248" ItemHeight="30" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Width="220" VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Rectangle Grid.Column="0" Width="11" Height="11" RadiusX="4" RadiusY="4"
+                                           Fill="{Binding SwatchBrush}" Margin="0,0,10,0" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="{Binding Label}" FontSize="14" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2" Text="{Binding SizeText}" FontFamily="{StaticResource MonoFontFamily}"
+                                           FontSize="13.5" Foreground="{StaticResource TextMutedBrush}"
+                                           Margin="10,0,0,0" VerticalAlignment="Center" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+            <!-- Large Files mode (2f): full-width segmented bar + its own legend -->
+            <controls:SegmentedBarChart x:Name="BarChart" Visibility="Collapsed" Margin="0,56,0,0"
+                                         HorizontalAlignment="Center" />
+
+            <!-- Actions - which buttons show depends on mode, see ScanCompletePage.xaml.cs -->
+            <StackPanel Orientation="Horizontal" Spacing="16" HorizontalAlignment="Center" Margin="0,46,0,0">
+                <!-- 2e only: primary CTA -->
+                <Button x:Name="SelectRecommendedButton" Content="⚡ Select Recommended"
+                        Click="SelectRecommended_Click" Style="{StaticResource PillCtaButtonStyle}"
+                        Padding="40,16" FontSize="{StaticResource FontSizeCta}" HorizontalAlignment="Center" />
+
+                <!-- 2e only: secondary (paired with Select Recommended above) -->
+                <Button x:Name="ReviewResultsSecondaryButton" Content="Review Results"
+                        Click="ReviewResults_Click" Padding="36,16"
+                        controls:PillCornerRadius.Enabled="True" Background="Transparent"
+                        Foreground="{StaticResource TextBodyEmphasisBrush}"
+                        FontFamily="{StaticResource DisplayFontFamily}" FontSize="16" FontWeight="SemiBold"
+                        BorderBrush="{StaticResource SecondaryButtonBorderBrush}" BorderThickness="1.5" />
+
+                <!-- 2f only: primary CTA (Large Files has no "Select Recommended") -->
+                <Button x:Name="ReviewResultsPrimaryButton" Content="Review Results" Visibility="Collapsed"
+                        Click="ReviewResults_Click" Style="{StaticResource PillCtaButtonStyle}"
+                        Padding="44,16" FontSize="{StaticResource FontSizeCta}" HorizontalAlignment="Center" />
+
+                <!-- Both modes -->
+                <Button Content="New scan" Click="NewScan_Click" Padding="20,16"
+                        Background="Transparent" BorderThickness="0"
+                        Foreground="{StaticResource TextFaintBrush}" FontSize="14" FontWeight="SemiBold" />
+            </StackPanel>
+
+            <TextBlock x:Name="ReassuranceText" HorizontalAlignment="Center" Margin="0,14,0,0"
+                       FontSize="12.5" Foreground="{StaticResource TextDisabledHintBrush}"
+                       TextAlignment="Center" TextWrapping="Wrap" MaxWidth="640" />
+        </StackPanel>
+    </Grid>
+</Page>

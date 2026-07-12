@@ -1,0 +1,275 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        Ported directly from the real inline <svg> coordinate data in
+        design-handoff/Quickening Screens.dc.html (not hand-drawn
+        approximations) - screens 2a/2b for the six folder-shortcut icons,
+        2g/2h for the five Results-row file-category icons. Each SVG
+        shape maps 1:1 to a WinUI shape at the same coordinates:
+        rect -> Rectangle (rx/ry -> RadiusX/RadiusY), circle -> Ellipse,
+        polygon -> Polygon, stroke/stroke-width/fill -> Stroke/
+        StrokeThickness/Fill. Colors that match one of Theme.xaml's seven
+        Category*Brush resources (Task 1) reference that resource instead
+        of repeating the hex literal, so a palette tweak can't desync
+        these icons from the rest of the design system.
+    -->
+
+    <!-- ===== Folder shortcuts (design-handoff screens 2a/2b, viewBox 0 0 30 26) ===== -->
+
+    <DataTemplate x:Key="IconDesktop">
+        <Viewbox Width="26" Height="23">
+            <Canvas Width="30" Height="26">
+                <Rectangle Canvas.Left="3" Canvas.Top="3" Width="24" Height="15" RadiusX="2.5" RadiusY="2.5"
+                           Stroke="{StaticResource CategoryArchiveBrush}" StrokeThickness="2" />
+                <Rectangle Canvas.Left="10" Canvas.Top="21" Width="10" Height="2.5" RadiusX="1.25" RadiusY="1.25"
+                           Fill="{StaticResource CategoryArchiveBrush}" />
+            </Canvas>
+        </Viewbox>
+    </DataTemplate>
+
+    <DataTemplate x:Key="IconDocuments">
+        <Viewbox Width="26" Height="23">
+            <Canvas Width="30" Height="26">
+                <Rectangle Canvas.Left="6" Canvas.Top="2" Width="18" Height="22" RadiusX="2.5" RadiusY="2.5"
+                           Stroke="{StaticResource CategoryDocumentBrush}" StrokeThickness="2" />
+                <Rectangle Canvas.Left="10" Canvas.Top="8" Width="10" Height="2" RadiusX="1" RadiusY="1"
+                           Fill="{StaticResource CategoryDocumentBrush}" />
+                <Rectangle Canvas.Left="10" Canvas.Top="13" Width="10" Height="2" RadiusX="1" RadiusY="1"
+                           Fill="{StaticResource CategoryDocumentBrush}" />
+                <Rectangle Canvas.Left="10" Canvas.Top="18" Width="6" Height="2" RadiusX="1" RadiusY="1"
+                           Fill="{StaticResource CategoryDocumentBrush}" />
+            </Canvas>
+        </Viewbox>
+    </DataTemplate>
+
+    <!--
+        Downloads: the handoff colors this #7FADFF (AccentLightColor) in
+        BOTH its selected (2a) and unselected (2b) occurrence - unlike
+        Videos below, this isn't a selection-state override, it's the
+        icon's actual color. #7FADFF isn't one of the seven category hues,
+        but it IS an existing Theme.xaml token (AccentLightBrush), so that
+        resource is referenced rather than repeating the hex literal.
+    -->
+    <DataTemplate x:Key="IconDownloads">
+        <Viewbox Width="26" Height="23">
+            <Canvas Width="30" Height="26">
+                <Rectangle Canvas.Left="13.5" Canvas.Top="2" Width="3" Height="12" RadiusX="1.5" RadiusY="1.5"
+                           Fill="{StaticResource AccentLightBrush}" />
+                <Polygon Points="15,19 8.5,11.5 21.5,11.5" Fill="{StaticResource AccentLightBrush}" />
+                <Rectangle Canvas.Left="5" Canvas.Top="21" Width="20" Height="2.5" RadiusX="1.25" RadiusY="1.25"
+                           Fill="{StaticResource AccentLightBrush}" />
+            </Canvas>
+        </Viewbox>
+    </DataTemplate>
+
+    <DataTemplate x:Key="IconPictures">
+        <Viewbox Width="26" Height="23">
+            <Canvas Width="30" Height="26">
+                <Rectangle Canvas.Left="3" Canvas.Top="3" Width="24" Height="20" RadiusX="3" RadiusY="3"
+                           Stroke="{StaticResource CategoryImageBrush}" StrokeThickness="2" />
+                <Ellipse Canvas.Left="8.5" Canvas.Top="7.5" Width="5" Height="5" Fill="{StaticResource CategoryImageBrush}" />
+                <Polygon Points="7,20 15,12 21,18 25,15 25,20" Fill="{StaticResource CategoryImageBrush}" />
+            </Canvas>
+        </Viewbox>
+    </DataTemplate>
+
+    <!--
+        Videos: default/unselected color in the handoff is #8C6EFF
+        (CategoryVideoBrush, an exact match) - screen 2b's occurrence is
+        the tile's *selected*-state recolor (#7FADFF, same override
+        Downloads happens to permanently use), which is a runtime
+        selection treatment, not this icon's true color, so the
+        unselected #8C6EFF from 2a is what's ported here.
+    -->
+    <DataTemplate x:Key="IconVideos">
+        <Viewbox Width="26" Height="23">
+            <Canvas Width="30" Height="26">
+                <Rectangle Canvas.Left="3" Canvas.Top="3" Width="24" Height="20" RadiusX="4" RadiusY="4"
+                           Stroke="{StaticResource CategoryVideoBrush}" StrokeThickness="2" />
+                <Polygon Points="12,8.5 12,17.5 20,13" Fill="{StaticResource CategoryVideoBrush}" />
+            </Canvas>
+        </Viewbox>
+    </DataTemplate>
+
+    <DataTemplate x:Key="IconMusic">
+        <Viewbox Width="26" Height="23">
+            <Canvas Width="30" Height="26">
+                <Rectangle Canvas.Left="18" Canvas.Top="3" Width="3" Height="14" RadiusX="1.5" RadiusY="1.5"
+                           Fill="{StaticResource CategoryAudioBrush}" />
+                <Ellipse Canvas.Left="8.5" Canvas.Top="14.5" Width="9" Height="9" Fill="{StaticResource CategoryAudioBrush}" />
+                <Rectangle Canvas.Left="18" Canvas.Top="3" Width="8" Height="3" RadiusX="1.5" RadiusY="1.5"
+                           Fill="{StaticResource CategoryAudioBrush}" />
+            </Canvas>
+        </Viewbox>
+    </DataTemplate>
+
+    <!--
+        Settings gear - unlike every icon above, there's no design-handoff
+        source for this (Settings has no Claude Design mockup yet - see
+        SettingsDialog.cs's own doc comment), so this is hand-built rather
+        than ported, but follows the exact same construction convention as
+        the rest of this file (plain Polygon/Ellipse primitives, no Path
+        data, StrokeThickness in the same 1.8-2 range) so it reads as part
+        of the same icon family instead of a mismatched system glyph.
+
+        First attempt used 8 thin radiating rectangles around a hollow
+        ring - at 20px that read as sun rays, not gear teeth. Replaced with
+        a hex-nut silhouette (stroked hexagon + center dot), unambiguous at
+        small sizes and needs no separate "teeth" pieces at all. Points are
+        a radius-9 hexagon centered on the 12,12 canvas center, vertex up.
+    -->
+    <DataTemplate x:Key="IconSettings">
+        <Viewbox Width="20" Height="20">
+            <Canvas Width="24" Height="24">
+                <Polygon Points="12,3 19.79,7.5 19.79,16.5 12,21 4.21,16.5 4.21,7.5"
+                          Stroke="{StaticResource TextMutedBrush}" StrokeThickness="1.8"
+                          StrokeLineJoin="Round" />
+                <Ellipse Canvas.Left="9" Canvas.Top="9" Width="6" Height="6"
+                         Fill="{StaticResource TextMutedBrush}" />
+            </Canvas>
+        </Viewbox>
+    </DataTemplate>
+
+    <!--
+        History clock - matches new-screens/4b's title-bar/footer clock
+        glyph (circle + hour/minute hands), same construction convention
+        (Ellipse + Polyline, no Path data).
+    -->
+    <DataTemplate x:Key="IconHistory">
+        <Viewbox Width="18" Height="18">
+            <Canvas Width="19" Height="19">
+                <Ellipse Canvas.Left="2" Canvas.Top="2" Width="15" Height="15"
+                         Stroke="{StaticResource TextMutedBrush}" StrokeThickness="1.8" />
+                <Polyline Points="9.5,5.5 9.5,9.5 12.5,11.5"
+                          Stroke="{StaticResource TextMutedBrush}" StrokeThickness="1.8"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+            </Canvas>
+        </Viewbox>
+    </DataTemplate>
+
+    <!--
+        Coffee cup (coffee/6a-6c) - the donation "buy me a coffee" glyph.
+        Warm #FFD666 stroke, cup body + handle + two steam wisps. Unlike the
+        stroke-only Polyline icons above, the cup's rounded body/handle need
+        real arcs, so this one uses Path Data (the arc segments would be a
+        mess of Polyline approximations otherwise). Two sizes because a
+        ContentControl renders a DataTemplate at its intrinsic Viewbox size:
+        16px for the footer/done-screen pills, 40px for the 6c dialog badge.
+    -->
+    <DataTemplate x:Key="IconCoffee">
+        <Viewbox Width="16" Height="16">
+            <Canvas Width="20" Height="20">
+                <Path Data="M3,7 H14 V13 A4,4 0 0 1 10,17 H7 A4,4 0 0 1 3,13 Z"
+                      Stroke="#FFD666" StrokeThickness="1.7" StrokeLineJoin="Round" />
+                <Path Data="M14,8.5 H15.5 A2.25,2.25 0 0 1 15.5,13 H14"
+                      Stroke="#FFD666" StrokeThickness="1.7" StrokeLineJoin="Round" />
+                <Path Data="M6.5,4.5 C6.5,3.5 7.5,3.5 7.5,2.5 M10,4.5 C10,3.5 11,3.5 11,2.5"
+                      Stroke="#FFD666" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+            </Canvas>
+        </Viewbox>
+    </DataTemplate>
+
+    <DataTemplate x:Key="IconCoffeeLarge">
+        <Viewbox Width="40" Height="40">
+            <Canvas Width="20" Height="20">
+                <Path Data="M3,7 H14 V13 A4,4 0 0 1 10,17 H7 A4,4 0 0 1 3,13 Z"
+                      Stroke="#FFD666" StrokeThickness="1.5" StrokeLineJoin="Round" />
+                <Path Data="M14,8.5 H15.5 A2.25,2.25 0 0 1 15.5,13 H14"
+                      Stroke="#FFD666" StrokeThickness="1.5" StrokeLineJoin="Round" />
+                <Path Data="M6.5,4.5 C6.5,3.5 7.5,3.5 7.5,2.5 M10,4.5 C10,3.5 11,3.5 11,2.5"
+                      Stroke="#FFD666" StrokeThickness="1.3" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+            </Canvas>
+        </Viewbox>
+    </DataTemplate>
+
+    <!-- ===== Results-row file-category icons (design-handoff screens 2g/2h) ===== -->
+
+    <DataTemplate x:Key="IconFileVideo">
+        <Viewbox Width="16" Height="16">
+            <Canvas Width="16" Height="16">
+                <Polygon Points="5,3 5,13 13,8" Fill="{StaticResource CategoryVideoBrush}" />
+            </Canvas>
+        </Viewbox>
+    </DataTemplate>
+
+    <DataTemplate x:Key="IconFileArchive">
+        <Viewbox Width="20" Height="20">
+            <Canvas Width="20" Height="20">
+                <Rectangle Canvas.Left="3" Canvas.Top="3" Width="14" Height="14" RadiusX="3" RadiusY="3"
+                           Stroke="{StaticResource CategoryArchiveBrush}" StrokeThickness="1.8" />
+                <Rectangle Canvas.Left="9" Canvas.Top="3" Width="2" Height="14" Fill="{StaticResource CategoryArchiveBrush}" />
+            </Canvas>
+        </Viewbox>
+    </DataTemplate>
+
+    <DataTemplate x:Key="IconFileExecutable">
+        <Viewbox Width="18" Height="18">
+            <Canvas Width="18" Height="18">
+                <Rectangle Canvas.Left="3" Canvas.Top="3" Width="12" Height="12" RadiusX="3" RadiusY="3"
+                           Stroke="{StaticResource CategoryExecutableBrush}" StrokeThickness="1.8" />
+                <Polygon Points="7.5,6 7.5,12 12,9" Fill="{StaticResource CategoryExecutableBrush}" />
+            </Canvas>
+        </Viewbox>
+    </DataTemplate>
+
+    <!--
+        IconFileImage: judgment call - 2g/2h never render a real vector
+        icon for the Image category in a Results row, only a diagonally
+        striped placeholder block (an unloaded-thumbnail treatment, not an
+        icon) with the literal text "img". Rather than invent an
+        unrelated shape, this reuses the exact real coordinates from the
+        Pictures folder-shortcut SVG above (same source, same
+        CategoryImageBrush color) at a smaller physical Viewbox size to
+        match the other Results-row icons - the same "same path data,
+        different size" relationship the handoff itself uses between
+        screens 2a and 2b for the folder icons.
+    -->
+    <DataTemplate x:Key="IconFileImage">
+        <Viewbox Width="18" Height="16">
+            <!--
+                StrokeThickness is compensated (2 / 0.6 scale ~ 3.3) so this
+                icon's stroke renders at the same effective ~2px as its
+                Viewbox==Canvas (unscaled) siblings above, rather than the
+                ~1.2px it'd render at uncompensated - this Viewbox scales
+                its content down to ~60% (18/30) to match the other
+                Results-row icons' physical size.
+            -->
+            <Canvas Width="30" Height="26">
+                <Rectangle Canvas.Left="3" Canvas.Top="3" Width="24" Height="20" RadiusX="3" RadiusY="3"
+                           Stroke="{StaticResource CategoryImageBrush}" StrokeThickness="3.3" />
+                <Ellipse Canvas.Left="8.5" Canvas.Top="7.5" Width="5" Height="5" Fill="{StaticResource CategoryImageBrush}" />
+                <Polygon Points="7,20 15,12 21,18 25,15 25,20" Fill="{StaticResource CategoryImageBrush}" />
+            </Canvas>
+        </Viewbox>
+    </DataTemplate>
+
+    <!--
+        IconFileGeneric: judgment call - the handoff's Results rows (2g/2h)
+        only ever show Image/Video/Archive/Executable file types; no
+        Document or "Other" row appears, so there's no real fallback
+        glyph to port for a plain file. Reuses the real coordinates from
+        the Documents folder-shortcut SVG above (page + text-line shape)
+        but tinted CategoryOtherBrush rather than CategoryDocumentBrush,
+        since this single template is shared by both the Document and
+        Other categories per the plan - CategoryOther (the true "generic/
+        unknown" bucket) is the more neutral choice of the two.
+    -->
+    <DataTemplate x:Key="IconFileGeneric">
+        <Viewbox Width="16" Height="14">
+            <!-- StrokeThickness compensated (2 / 0.53 scale ~ 3.75) - see IconFileImage's comment above for why. -->
+            <Canvas Width="30" Height="26">
+                <Rectangle Canvas.Left="6" Canvas.Top="2" Width="18" Height="22" RadiusX="2.5" RadiusY="2.5"
+                           Stroke="{StaticResource CategoryOtherBrush}" StrokeThickness="3.75" />
+                <Rectangle Canvas.Left="10" Canvas.Top="8" Width="10" Height="2" RadiusX="1" RadiusY="1"
+                           Fill="{StaticResource CategoryOtherBrush}" />
+                <Rectangle Canvas.Left="10" Canvas.Top="13" Width="10" Height="2" RadiusX="1" RadiusY="1"
+                           Fill="{StaticResource CategoryOtherBrush}" />
+                <Rectangle Canvas.Left="10" Canvas.Top="18" Width="6" Height="2" RadiusX="1" RadiusY="1"
+                           Fill="{StaticResource CategoryOtherBrush}" />
+            </Canvas>
+        </Viewbox>
+    </DataTemplate>
+
+</ResourceDictionary>

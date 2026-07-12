@@ -1,0 +1,46 @@
+<UserControl
+    x:Class="Quickening.App.Controls.SegmentedBarChart"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--
+        Screen 2f's Large-Files summary: an 880x46 horizontal stacked bar
+        (14px corner radius, 3px gaps between segments) with a wrapping
+        legend below it (swatch + label + size + count per category).
+        Segment widths and legend rows are built in code-behind's Render()
+        from SegmentedBarChartMath's pure proportional-width computation -
+        the same Segments-in/Render()-out shape as DonutChart.
+    -->
+    <StackPanel Spacing="20">
+        <!--
+            BarGrid's ColumnDefinitions/children are built in code-behind's
+            Render(), one column per segment, sized proportionally via
+            GridLength(fraction, Star) with ColumnSpacing supplying the 3px
+            gaps - Grid's star-sizing subtracts the spacing gutters before
+            distributing the remainder, matching the CSS flex+gap behaviour
+            2f's markup relies on. Each segment is a Border (not a bare
+            Rectangle) so the first/last segment's outer corners can be
+            rounded via CornerRadius - see SegmentedBarChart.xaml.cs.
+        -->
+        <Grid x:Name="BarGrid" Width="880" Height="46" HorizontalAlignment="Center" ColumnSpacing="3" />
+
+        <ItemsControl x:Name="LegendList" HorizontalAlignment="Center">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="4" ItemWidth="200" ItemHeight="26" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
+                        <Rectangle Width="11" Height="11" RadiusX="4" RadiusY="4" Fill="{Binding SwatchBrush}"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding Label}" FontSize="13.5" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding SizeAndCount}" FontFamily="{StaticResource MonoFontFamily}"
+                                   FontSize="13" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </StackPanel>
+</UserControl>

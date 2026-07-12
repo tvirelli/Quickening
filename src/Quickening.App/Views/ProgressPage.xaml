@@ -1,0 +1,162 @@
+<Page
+    x:Class="Quickening.App.Views.ProgressPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Quickening.App.Controls"
+    Background="Transparent">
+
+    <!--
+        One shared shell for all three progress use cases (screens 2c/2d/2k
+        in design-handoff/Quickening Screens.dc.html) - indeterminate scan,
+        determinate scan, and removal. Only the ring's hue/state, the
+        RingCenterPanel's active child, and headline/subtitle copy differ
+        between them; everything else (ambient glow, path chip, Stop
+        button) is identical structure across all three.
+    -->
+    <Grid>
+        <!--
+            Ambient radial glow behind the ring, matching 2c/2d's
+            "radial-gradient(closest-side, rgba(46,107,255,0.14), rgba(46,107,255,0))"
+            (blue, scanning) vs 2k's rgba(94,231,183,0.10) (green, removal).
+            Starts blue; ProgressPage.xaml.cs swaps the gradient stops to
+            green when parameters.RingHue is Success.
+        -->
+        <Ellipse x:Name="AmbientGlow" Width="640" Height="640"
+                 HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,90,0,0"
+                 IsHitTestVisible="False">
+            <Ellipse.Fill>
+                <RadialGradientBrush x:Name="AmbientGlowBrush">
+                    <GradientStop x:Name="AmbientGlowInnerStop" Color="#242E6BFF" Offset="0" />
+                    <GradientStop x:Name="AmbientGlowOuterStop" Color="#002E6BFF" Offset="1" />
+                </RadialGradientBrush>
+            </Ellipse.Fill>
+        </Ellipse>
+
+        <!--
+            Width is fixed (matching AmbientGlow's own 640) rather than
+            Auto - a plain auto-width StackPanel measures its own width from
+            its widest child, and since this whole StackPanel is itself
+            HorizontalAlignment="Center" in the root Grid, that measured
+            width feeds back into where the StackPanel (and so everything
+            in it) gets centered. PathChipText's path text is the one child
+            that changes on every progress tick; without a fixed Width here,
+            each new (shorter/longer) path shifted the StackPanel's center
+            point, visibly jiggling the ring/Stop button/hint text below it
+            left-right even though none of them changed at all. Fixing the
+            column's own width means every child now centers independently
+            within the same stable 640px, so PathChipText can still vary
+            (bounded by its own MaxWidth) without moving anything else.
+        -->
+        <StackPanel Width="640" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,66,0,0">
+            <!-- Ring + overlaid, individually-toggled center content -->
+            <Grid Width="260" Height="260" HorizontalAlignment="Center">
+                <controls:ProgressRingArc x:Name="Ring" />
+
+                <Grid x:Name="RingCenterPanel">
+                    <!-- Indeterminate scan (2c): small bolt + "sizing up…" -->
+                    <StackPanel x:Name="IndeterminateCenterPanel"
+                                HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
+                        <Viewbox Width="34" Height="46" HorizontalAlignment="Center">
+                            <Canvas Width="34" Height="46">
+                                <Polygon Points="20,2 6,26 15,26 12,44 28,18 18,18"
+                                         Fill="{StaticResource AccentLightBrush}" />
+                            </Canvas>
+                        </Viewbox>
+                        <TextBlock Text="sizing up…" FontFamily="{StaticResource BodyFontFamily}"
+                                   FontSize="13" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"
+                                   HorizontalAlignment="Center" Margin="0,6,0,0" />
+                    </StackPanel>
+
+                    <!-- Determinate scan (2d): big "64%" + "8,412 of 13,097" -->
+                    <StackPanel x:Name="PercentCenterPanel" Visibility="Collapsed"
+                                HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="2">
+                        <TextBlock HorizontalAlignment="Center" FontFamily="{StaticResource DisplayFontFamily}"
+                                   CharacterSpacing="{StaticResource TrackingTightHalfPx}">
+                            <Run x:Name="PercentValueRun" Text="0" FontSize="{StaticResource FontSizeProgressPercent}"
+                                 FontWeight="Bold" Foreground="{StaticResource TextHeadingBrush}" />
+                            <Run Text="%" FontSize="26" Foreground="{StaticResource AccentLightBrush}" />
+                        </TextBlock>
+                        <TextBlock x:Name="PercentSubText" FontSize="13" FontWeight="Bold"
+                                   Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Center"
+                                   Margin="0,2,0,0" />
+                    </StackPanel>
+
+                    <!-- Removal (2k): big "131/184" + "files moved" -->
+                    <StackPanel x:Name="CountCenterPanel" Visibility="Collapsed"
+                                HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="2">
+                        <TextBlock HorizontalAlignment="Center" FontFamily="{StaticResource DisplayFontFamily}"
+                                   CharacterSpacing="{StaticResource TrackingTightHalfPx}">
+                            <Run x:Name="CountValueRun" Text="0" FontSize="48"
+                                 FontWeight="Bold" Foreground="{StaticResource TextHeadingBrush}" />
+                            <Run x:Name="CountTotalRun" Text="/0" FontSize="22"
+                                 Foreground="{StaticResource TextMutedBrush}" />
+                        </TextBlock>
+                        <TextBlock Text="files moved" FontSize="13" FontWeight="Bold"
+                                   Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Center"
+                                   Margin="0,2,0,0" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+
+            <TextBlock x:Name="HeadlineText" FontFamily="{StaticResource DisplayFontFamily}"
+                       FontSize="{StaticResource FontSizeProgressHeadline}" FontWeight="Bold"
+                       Foreground="{StaticResource TextHeadingBrush}" HorizontalAlignment="Center"
+                       Margin="0,34,0,0" />
+            <TextBlock x:Name="SubtitleText" FontSize="15" Foreground="{StaticResource TextMutedBrush}"
+                       HorizontalAlignment="Center" Margin="0,8,0,0" TextWrapping="Wrap"
+                       TextAlignment="Center" MaxWidth="560" />
+
+            <!--
+                Live path chip - current file being processed, real data from
+                ProgressUpdate.CurrentItemLabel. PathChipText has its own
+                fixed MaxWidth + ellipsis trimming so a long path truncates
+                instead of growing the chip - without this, every path
+                change resized the chip's (and so this whole centered
+                StackPanel's) measured width, visibly shifting the ring/Stop
+                button/hint text below it left-right as paths streamed by.
+            -->
+            <Border x:Name="PathChipBorder" Margin="0,26,0,0" Padding="20,12" CornerRadius="14" HorizontalAlignment="Center"
+                    Background="{StaticResource SurfaceCardBrush}" BorderBrush="{StaticResource SurfaceCardBorderBrush}"
+                    BorderThickness="1">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <Ellipse Width="8" Height="8" Fill="{StaticResource SuccessBrush}" VerticalAlignment="Center" />
+                    <TextBlock x:Name="PathChipText" FontFamily="{StaticResource MonoFontFamily}" FontSize="13"
+                               Foreground="{StaticResource TextMutedBrush}"
+                               MaxWidth="480" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Border>
+
+            <!--
+                "N duplicates found so far - X reclaimable" pill (2d) -
+                starts Collapsed; ProgressPage.xaml.cs's UpdateFindsPill
+                flips it visible and fills FindsPillText once
+                ProgressUpdate.DuplicateGroupsFoundSoFar reports the first
+                real group (0 stays hidden rather than flashing "0 found").
+                Removal never shows this - it has its own count-style center
+                content instead (CountCenterPanel).
+            -->
+            <Border x:Name="FindsPillPanel" Visibility="Collapsed" Margin="0,16,0,0" Padding="18,10"
+                    controls:PillCornerRadius.Enabled="True" HorizontalAlignment="Center"
+                    Background="{StaticResource SuccessFillBrush}">
+                <Border.BorderBrush>
+                    <SolidColorBrush Color="#405EE7B7" />
+                </Border.BorderBrush>
+                <Border.BorderThickness>1</Border.BorderThickness>
+                <TextBlock x:Name="FindsPillText" FontSize="13.5" FontWeight="Bold"
+                           Foreground="{StaticResource SuccessBrush}" />
+            </Border>
+
+            <Button x:Name="StopButton" Content="Stop" Click="Stop_Click" Margin="0,40,0,0" Padding="34,12"
+                    controls:PillCornerRadius.Enabled="True" Background="Transparent"
+                    Foreground="{StaticResource TextSecondaryBrush}" FontSize="14.5" FontWeight="Bold"
+                    HorizontalAlignment="Center">
+                <Button.BorderBrush>
+                    <SolidColorBrush Color="#24FFFFFF" />
+                </Button.BorderBrush>
+                <Button.BorderThickness>1.5</Button.BorderThickness>
+            </Button>
+            <TextBlock x:Name="StopHintText" FontSize="12" Foreground="{StaticResource TextDisabledHintBrush}"
+                       HorizontalAlignment="Center" Margin="0,10,0,0" />
+        </StackPanel>
+    </Grid>
+</Page>
