@@ -6,6 +6,14 @@ automatically, so you're normally on the latest version already.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and
 Quickening follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] - 2026-07-12
+
+### Changed
+- Removed the unused "Share anonymous usage stats" setting from Settings.
+
+### Fixed
+- History screen's empty state: the "Run your first scan" button is now centered.
+
 ## [1.0.2] - 2026-07-12
 
 ### Fixed
@@ -25,6 +33,7 @@ Quickening follows [Semantic Versioning](https://semver.org/).
   photos on Windows 10 & 11, and remove them safely to the Recycle Bin.
 - Silent automatic updates.
 
+[1.0.3]: https://github.com/tvirelli/Quickening/releases/tag/v1.0.3
 [1.0.2]: https://github.com/tvirelli/Quickening/releases/tag/v1.0.2
 [1.0.1]: https://github.com/tvirelli/Quickening/releases/tag/v1.0.1
 [1.0.0]: https://github.com/tvirelli/Quickening/releases/tag/v1.0.0
