@@ -175,8 +175,9 @@
                                    FontFamily="{StaticResource BodyFontFamily}" FontSize="12.5"
                                    Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
                         <Border Grid.Column="3" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="6,0,0,0"
+                                controls:PillCornerRadius.Enabled="True"
                                 Visibility="{Binding Group.IsLikelyCreatedTogether, Converter={StaticResource BoolToVisibilityConverter}}"
-                                Background="#1FFF8A5C" BorderBrush="#66FF8A5C" BorderThickness="1" CornerRadius="999" Padding="9,2">
+                                Background="#1FFF8A5C" BorderBrush="#66FF8A5C" BorderThickness="1" Padding="9,2">
                             <TextBlock Text="Created together — may belong to an app or set"
                                        FontFamily="{StaticResource BodyFontFamily}" FontSize="10.5" FontWeight="ExtraBold"
                                        Foreground="#FF8A5C" />
