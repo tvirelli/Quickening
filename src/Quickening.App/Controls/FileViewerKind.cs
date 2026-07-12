@@ -2,7 +2,7 @@ using Quickening.Core.Models;
 
 namespace Quickening.App.Controls;
 
-public enum FileViewerKind { Image, Video, Audio, Code, PlainText, Markdown, Pdf, None }
+public enum FileViewerKind { Image, Video, Audio, Code, PlainText, Markdown, Pdf, Archive, None }
 
 /// <summary>
 /// Chooses which compare-viewer tile to build for a file. Media categories win
@@ -35,6 +35,9 @@ public static class FileViewerRouter
 
         var ext = System.IO.Path.GetExtension(path);
         if (ext.Equals(".pdf", StringComparison.OrdinalIgnoreCase)) return FileViewerKind.Pdf;
+        // Only the archives ArchiveInspector can read without a native dependency
+        // get the contents viewer; .7z/.rar/tarballs fall through to None.
+        if (ext.Equals(".zip", StringComparison.OrdinalIgnoreCase) || ext.Equals(".tar", StringComparison.OrdinalIgnoreCase)) return FileViewerKind.Archive;
         if (ext.Equals(".md", StringComparison.OrdinalIgnoreCase) || ext.Equals(".markdown", StringComparison.OrdinalIgnoreCase)) return FileViewerKind.Markdown;
         if (Code.Contains(ext)) return FileViewerKind.Code;
         if (PlainText.Contains(ext)) return FileViewerKind.PlainText;

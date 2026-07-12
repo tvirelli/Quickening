@@ -166,8 +166,10 @@ public sealed partial class MediaComparisonViewer : UserControl
                 mediaHost.Child = new Image
                 {
                     // Uniform + Stretch fits the whole image inside the host,
-                    // centered and letterboxed - never cropped.
-                    Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(file.Path)),
+                    // centered and letterboxed - never cropped. SVG is a vector
+                    // format BitmapImage can't decode, so it gets an
+                    // SvgImageSource (which rasterises the vector) instead.
+                    Source = ImageSourceFor(file.Path),
                     Stretch = Stretch.Uniform,
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     VerticalAlignment = VerticalAlignment.Stretch,
@@ -183,6 +185,9 @@ public sealed partial class MediaComparisonViewer : UserControl
             case FileViewerKind.Pdf:
                 mediaHost.Child = BuildPdfViewer(file, resources);
                 break;
+            case FileViewerKind.Archive:
+                mediaHost.Child = BuildArchiveViewer(file, resources);
+                break;
             default:
                 mediaHost.Child = BuildNoPreview(file, resources);
                 break;
@@ -190,6 +195,16 @@ public sealed partial class MediaComparisonViewer : UserControl
 
         grid.Children.Add(BuildFooter(file, resources));
         return border;
+    }
+
+    // Raster formats decode through BitmapImage/WIC; SVG is vector and needs
+    // SvgImageSource, which rasterises it at display size.
+    private static Microsoft.UI.Xaml.Media.ImageSource ImageSourceFor(string path)
+    {
+        var uri = new Uri(path);
+        return System.IO.Path.GetExtension(path).Equals(".svg", StringComparison.OrdinalIgnoreCase)
+            ? new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(uri)
+            : new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(uri);
     }
 
     // Cap in-viewer text loads so a giant log can't hang the UI.
@@ -316,6 +331,70 @@ public sealed partial class MediaComparisonViewer : UserControl
         };
         panel.Children.Add(open);
         return panel;
+    }
+
+    // Archive contents: a flat, scrollable list of every entry (name + size)
+    // so two archives can be eyeballed side by side. Reads via ArchiveInspector
+    // (zip/tar, no extraction, no native dependency); an unreadable or empty
+    // archive degrades to the open-externally tile.
+    private FrameworkElement BuildArchiveViewer(SelectableFile file, ResourceDictionary resources)
+    {
+        var listing = Quickening.Core.Archives.ArchiveInspector.List(file.Path);
+        if (listing.Error is not null || listing.Entries.Count == 0)
+        {
+            return BuildNoPreview(file, resources);
+        }
+
+        var stack = new StackPanel { Spacing = 2 };
+        stack.Children.Add(new TextBlock
+        {
+            Text = listing.Truncated
+                ? $"{listing.Entries.Count}+ items (showing first {listing.Entries.Count})"
+                : $"{listing.Entries.Count} items",
+            FontFamily = (FontFamily)resources["BodyFontFamily"],
+            FontWeight = FontWeights.Bold,
+            FontSize = 13,
+            Foreground = (Brush)resources["TextSecondaryBrush"],
+            Margin = new Thickness(0, 0, 0, 8),
+        });
+
+        foreach (var entry in listing.Entries)
+        {
+            var row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var name = new TextBlock
+            {
+                Text = entry.IsDirectory ? "📁 " + entry.Name : entry.Name,
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 12,
+                Foreground = (Brush)resources[entry.IsDirectory ? "TextMutedBrush" : "TextBodyBrush"],
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = TextWrapping.NoWrap,
+            };
+            Grid.SetColumn(name, 0);
+            row.Children.Add(name);
+
+            if (!entry.IsDirectory)
+            {
+                var size = new TextBlock
+                {
+                    Text = FileSizeFormatter.Format(entry.Length),
+                    FontFamily = new FontFamily("Consolas"),
+                    FontSize = 12,
+                    Foreground = (Brush)resources["TextFaintBrush"],
+                    Margin = new Thickness(12, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                Grid.SetColumn(size, 1);
+                row.Children.Add(size);
+            }
+
+            stack.Children.Add(row);
+        }
+
+        return BuildTextScroller(stack);
     }
 
     // PDF ladder: WebView2 (real Edge viewer) -> Windows.Data.Pdf bitmap pages
