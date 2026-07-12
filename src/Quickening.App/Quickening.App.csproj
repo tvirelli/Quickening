@@ -28,6 +28,13 @@
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <Version>1.0.0</Version>
+    <!--
+      Opt out of the WinUI-generated Main so Program.cs can run
+      VelopackApp.Build().Run() as the very first line of the process
+      (install/update/uninstall hooks must precede any UI).
+    -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -89,6 +96,7 @@
       the restore loudly - update this version to match.
     -->
     <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="[2.2.0]" GeneratePathProperty="true" />
+    <PackageReference Include="Velopack" Version="1.2.0" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Quickening.Core\Quickening.Core.csproj" />
@@ -128,9 +136,7 @@
     the resolved package (rather than committing the binary) keeps it in sync
     with whatever WASDK version is referenced.
   -->
-  <Target Name="DeployWinAppRuntimeInsightsResourceDll"
-          BeforeTargets="AssignTargetPaths"
-          Condition="'$(WindowsAppSDKSelfContained)' == 'true' and '$(WindowsPackageType)' == 'None' and '$(RuntimeIdentifier)' != ''">
+  <Target Name="DeployWinAppRuntimeInsightsResourceDll" BeforeTargets="AssignTargetPaths" Condition="'$(WindowsAppSDKSelfContained)' == 'true' and '$(WindowsPackageType)' == 'None' and '$(RuntimeIdentifier)' != ''">
     <!--
       Properties computed HERE, not in a project-level PropertyGroup:
       $(IntermediateOutputPath) is defined by Microsoft.Common.targets,
@@ -146,16 +152,10 @@
       <_InsightsDllDestDir>$(IntermediateOutputPath)winappruntime\$([System.IO.Path]::GetFileName('$(PkgMicrosoft_WindowsAppSDK_Runtime)'))</_InsightsDllDestDir>
       <_InsightsDllDest>$(_InsightsDllDestDir)\$(_InsightsResourceDllName)</_InsightsDllDest>
     </PropertyGroup>
-    <Error Condition="!Exists('$(_InsightsMsixPath)')"
-           Text="DeployWinAppRuntimeInsightsResourceDll: framework MSIX not found at $(_InsightsMsixPath) - did a WindowsAppSDK bump change the Runtime package version or MSIX filename?" />
+    <Error Condition="!Exists('$(_InsightsMsixPath)')" Text="DeployWinAppRuntimeInsightsResourceDll: framework MSIX not found at $(_InsightsMsixPath) - did a WindowsAppSDK bump change the Runtime package version or MSIX filename?" />
     <!-- Include filter makes this extract just the one 34 KB DLL, not the whole 44 MB archive. -->
-    <Unzip Condition="!Exists('$(_InsightsDllDest)')"
-           SourceFiles="$(_InsightsMsixPath)"
-           DestinationFolder="$(_InsightsDllDestDir)"
-           Include="$(_InsightsResourceDllName)"
-           OverwriteReadOnlyFiles="true" />
-    <Error Condition="!Exists('$(_InsightsDllDest)')"
-           Text="DeployWinAppRuntimeInsightsResourceDll: $(_InsightsResourceDllName) was not found inside $(_InsightsMsixPath)." />
+    <Unzip Condition="!Exists('$(_InsightsDllDest)')" SourceFiles="$(_InsightsMsixPath)" DestinationFolder="$(_InsightsDllDestDir)" Include="$(_InsightsResourceDllName)" OverwriteReadOnlyFiles="true" />
+    <Error Condition="!Exists('$(_InsightsDllDest)')" Text="DeployWinAppRuntimeInsightsResourceDll: $(_InsightsResourceDllName) was not found inside $(_InsightsMsixPath)." />
     <ItemGroup>
       <None Include="$(_InsightsDllDest)">
         <Link>$(_InsightsResourceDllName)</Link>
