@@ -1,4 +1,5 @@
 using Microsoft.UI;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Quickening.App.ViewModels;
 using Quickening.App.Views;
@@ -81,6 +82,27 @@ public sealed partial class MainWindow : Window
         titleBar.ButtonHoverBackgroundColor = Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF);
         titleBar.ButtonHoverForegroundColor = Color.FromArgb(0xFF, 0xE8, 0xED, 0xFF);
         titleBar.ButtonPressedBackgroundColor = Color.FromArgb(0x28, 0xFF, 0xFF, 0xFF);
+    }
+
+    /// <summary>
+    /// Shows the subtle one-time "Updated to vX" note in the InfoBar and
+    /// auto-dismisses it after a few seconds. Safe to call from OnLaunched
+    /// (runs on the UI thread that owns this window).
+    /// </summary>
+    public void ShowUpdateNote(string message)
+    {
+        UpdateNote.Title = message;
+        UpdateNote.IsOpen = true;
+
+        var timer = DispatcherQueue.CreateTimer();
+        timer.Interval = TimeSpan.FromSeconds(6);
+        timer.IsRepeating = false;
+        timer.Tick += (t, _) =>
+        {
+            UpdateNote.IsOpen = false;
+            t.Stop();
+        };
+        timer.Start();
     }
 
     // prefill is optional so every existing zero-argument call site (this

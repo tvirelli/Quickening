@@ -84,6 +84,13 @@ public partial class App : Application
     public static Tray.NotificationDispatcher<Microsoft.Windows.AppNotifications.AppNotificationActivatedEventArgs> Notifications { get; } = new();
 
     /// <summary>
+    /// App-lifetime Velopack update service - checks GitHub Releases on launch,
+    /// stages any newer build, applies it on exit. Also exposed so Settings'
+    /// "Check for updates" button and version display can reach it.
+    /// </summary>
+    public static Updates.UpdateService? Updater { get; private set; }
+
+    /// <summary>
     /// Set just before deliberately quitting (the tray menu's "Quit
     /// Quickening" - tray-menus 5a) so MainWindow's AppWindow.Closing
     /// handler lets the close through instead of hiding to tray. Nothing
@@ -144,6 +151,16 @@ public partial class App : Application
         Watcher = new Tray.DuplicateWatcherService(Store, Tray);
         ScheduledScan = new Tray.ScheduledScanService(Store);
 
+        // Update service: kick off a background check (fire-and-forget; it
+        // logs and swallows all failures). Compute the one-time "Updated to
+        // vX" note by comparing the version we last launched as against the
+        // one now running, then record the current one for next time.
+        Updater = new Updates.UpdateService(Logger);
+        var updateNote = Updates.UpdateNotice.Evaluate(Settings.LastSeenVersion, Updater.CurrentVersion);
+        Settings.LastSeenVersion = Updater.CurrentVersion;
+        SaveSettings();
+        _ = Updater.CheckAndStageAsync();
+
         // Registered once, app-wide, regardless of either Automation
         // toggle - Watcher's own duplicate-found toast and ScheduledScan's
         // completion toast both activate through the Notifications
@@ -178,6 +195,7 @@ public partial class App : Application
             Watcher?.Dispose();
             Tray?.Dispose();
             Store?.Dispose();
+            Updater?.ApplyPendingOnExit();
             try
             {
                 Microsoft.Windows.AppNotifications.AppNotificationManager.Default.Unregister();
@@ -188,6 +206,11 @@ public partial class App : Application
             }
         };
         _window.Activate();
+
+        if (updateNote is not null && _window is MainWindow mainWindow)
+        {
+            mainWindow.ShowUpdateNote(updateNote);
+        }
 
         // Only actually starts anything if the user had already turned
         // watching on in a previous session - Start() itself is what makes

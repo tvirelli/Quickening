@@ -39,5 +39,19 @@
         </Grid>
 
         <Frame x:Name="ContentFrame" Grid.Row="1" Background="Transparent" />
+
+        <!--
+            One-time post-update note ("Updated to vX"), floated over the top
+            of the content area. Opened by ShowUpdateNote and auto-dismissed a
+            few seconds later; the user can also close it. Row 1 so it overlays
+            page content, not the title bar.
+        -->
+        <InfoBar
+            x:Name="UpdateNote"
+            Grid.Row="1"
+            VerticalAlignment="Top"
+            Margin="20,12,20,0"
+            IsOpen="False"
+            Severity="Success" />
     </Grid>
 </Window>
