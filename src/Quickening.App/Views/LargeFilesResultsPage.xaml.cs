@@ -416,27 +416,35 @@ public sealed partial class LargeFilesResultsPage : Page
         SelectedCalloutText.Text = callout;
     }
 
-    private void FileThumbnail_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    // Kicks off the lazy video poster frame and shell file-type icon loads for a
+    // realized row (each no-ops when it doesn't apply), mirroring ResultsPage.
+    private void FileThumbnail_Loaded(object sender, RoutedEventArgs e)
     {
-        if (sender is not FrameworkElement { DataContext: SelectableFile file })
+        if (sender is FrameworkElement { DataContext: SelectableFile file })
         {
-            return;
+            _ = file.LoadVideoThumbnailAsync();
+            _ = file.LoadFileTypeIconAsync();
         }
-
-        ShowPreview(file);
     }
 
-    // Only media categories (Image/Video/Audio) have anything to preview -
-    // tapping/right-clicking a document/archive/executable/other row's
-    // icon is a no-op, same rule ResultsPage.xaml.cs's thumbnail tap uses.
-    // Unlike Results' grouped view, Large Files has no duplicate group to
-    // show side-by-side - MediaComparisonViewer.ShowGroup is called with
-    // just this single file, which its existing "1 panel for Large Files"
-    // support (see its own doc comment) already handles as-is.
-    private void ShowPreview(SelectableFile file)
+    private async void FileThumbnail_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
     {
-        if (file.Category is not (MimeCategory.Image or MimeCategory.Video or MimeCategory.Audio))
+        if (sender is FrameworkElement { DataContext: SelectableFile file })
         {
+            await PreviewOrOpenAsync(file);
+        }
+    }
+
+    // Opens the single-file preview for any previewable type (media, code/text,
+    // PDF, archive contents); a type with no viewer (proprietary/binary) offers
+    // to open in its default app behind a confirm. Unlike Results' grouped view,
+    // Large Files has no duplicate group, so ShowGroup gets just this one file
+    // (its "1 panel" support handles that).
+    private async Task PreviewOrOpenAsync(SelectableFile file)
+    {
+        if (Controls.FileViewerRouter.ForPath(file.Path, file.Category) == Controls.FileViewerKind.None)
+        {
+            await ResultsPage.ConfirmAndOpenExternallyAsync(XamlRoot, file);
             return;
         }
 
@@ -479,14 +487,12 @@ public sealed partial class LargeFilesResultsPage : Page
         Quickening.Core.Shell.ExplorerLauncher.SelectInExplorer(file.Path);
     }
 
-    private void Preview_Click(object sender, RoutedEventArgs e)
+    private async void Preview_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not MenuFlyoutItem { DataContext: SelectableFile file })
+        if (sender is MenuFlyoutItem { DataContext: SelectableFile file })
         {
-            return;
+            await PreviewOrOpenAsync(file);
         }
-
-        ShowPreview(file);
     }
 
     // "Select this file" checks this row's box without touching any other

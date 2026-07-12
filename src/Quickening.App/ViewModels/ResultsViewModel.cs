@@ -123,6 +123,9 @@ public sealed class SelectableFile : INotifyPropertyChanged
 
         _thumbnailFailed = true;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImage)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasThumbnail)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowCategoryGlyph)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowFileTypeIcon)));
     }
 
     // Lazily decoded on first access rather than eagerly for every file at
@@ -195,11 +198,49 @@ public sealed class SelectableFile : INotifyPropertyChanged
             _videoThumbReady = true;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasThumbnail)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ThumbnailSource)));
+            // The poster now wins over both the shell icon and the category glyph.
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowCategoryGlyph)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowFileTypeIcon)));
         }
         catch (Exception ex)
         {
             App.Logger?.LogError($"Video thumbnail load failed for '{Path}': {ex}");
         }
+    }
+
+    // Real Windows shell icon for non-media rows (what Explorer shows for the
+    // type). Lazily loaded from the row's Loaded handler; on success it replaces
+    // the generic category glyph. Media rows skip it - they show a content
+    // thumbnail instead.
+    private Microsoft.UI.Xaml.Media.ImageSource? _fileTypeIcon;
+    private bool _fileTypeIconRequested;
+
+    public Microsoft.UI.Xaml.Media.ImageSource? FileTypeIconSource => _fileTypeIcon;
+
+    // The icon Border layers three mutually exclusive states: a content
+    // thumbnail (images/videos), else the real shell type icon once loaded, else
+    // the generic category glyph as the always-available fallback.
+    public bool ShowFileTypeIcon => !HasThumbnail && _fileTypeIcon is not null;
+    public bool ShowCategoryGlyph => !HasThumbnail && _fileTypeIcon is null;
+
+    public async System.Threading.Tasks.Task LoadFileTypeIconAsync()
+    {
+        if (_fileTypeIconRequested || HasThumbnail)
+        {
+            return;
+        }
+        _fileTypeIconRequested = true;
+
+        var source = await Services.ShellIconProvider.GetIconSourceAsync(Path);
+        if (source is null)
+        {
+            return;
+        }
+
+        _fileTypeIcon = source;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FileTypeIconSource)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowFileTypeIcon)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowCategoryGlyph)));
     }
 }
 

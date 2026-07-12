@@ -794,15 +794,20 @@ public sealed partial class ResultsPage : Page
     {
         if (sender is FrameworkElement { DataContext: SelectableFile file })
         {
+            // Videos lazily load a poster frame; non-media rows lazily load their
+            // real shell type icon. Each no-ops when it doesn't apply.
             _ = file.LoadVideoThumbnailAsync();
+            _ = file.LoadFileTypeIconAsync();
         }
     }
 
     // ResultsPage.xaml. Opens the side-by-side comparison viewer over every
     // file in the tapped file's duplicate group - for any file the compare
-    // viewer can preview (media, code/markdown/text, PDF). Tapping a row whose
-    // type has no viewer (proprietary/binary) is a no-op.
-    private void FileThumbnail_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    // viewer can preview (media, code/markdown/text, PDF, archive contents).
+    // Tapping a row whose type has no viewer (proprietary/binary, e.g. .psd,
+    // .docx) instead offers to open it in its default app, behind a confirm so
+    // an accidental tap doesn't launch heavy software.
+    private async void FileThumbnail_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
     {
         if (sender is not FrameworkElement { DataContext: SelectableFile file })
         {
@@ -811,6 +816,7 @@ public sealed partial class ResultsPage : Page
 
         if (Controls.FileViewerRouter.ForPath(file.Path, file.Category) == Controls.FileViewerKind.None)
         {
+            await ConfirmAndOpenExternallyAsync(XamlRoot, file);
             return;
         }
 
@@ -821,6 +827,45 @@ public sealed partial class ResultsPage : Page
         }
 
         ComparisonViewer.ShowGroup(group.Files.ToList());
+    }
+
+    // Confirm-then-open for file types with no in-app preview. Names the
+    // registered app when Windows exposes a friendly name ("Open in Adobe
+    // Photoshop?") and degrades to generic wording otherwise. Static + XamlRoot-
+    // parameterized so LargeFilesResultsPage reuses the exact same prompt.
+    internal static async Task ConfirmAndOpenExternallyAsync(XamlRoot xamlRoot, SelectableFile file)
+    {
+        var appName = Quickening.Core.Shell.DefaultAppResolver.FriendlyAppName(file.Path);
+        var fileName = System.IO.Path.GetFileName(file.Path);
+
+        var dialog = new ContentDialog
+        {
+            Style = (Style)Application.Current.Resources["NebulaContentDialogStyle"],
+            Title = "No preview for this file type",
+            Content = appName is null
+                ? $"Open \"{fileName}\" in its default app?"
+                : $"Open \"{fileName}\" in {appName}?",
+            PrimaryButtonText = "Open",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            PrimaryButtonStyle = (Style)Application.Current.Resources["PillCtaButtonStyle"],
+            CloseButtonStyle = (Style)Application.Current.Resources["PillSecondaryButtonStyle"],
+            XamlRoot = xamlRoot,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(file.Path) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            App.Logger?.LogError($"Opening file '{file.Path}' in default app failed: {ex}");
+        }
     }
 
     private void FileThumbnail_ImageFailed(object sender, ExceptionRoutedEventArgs e)

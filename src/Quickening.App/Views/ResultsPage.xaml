@@ -243,8 +243,12 @@
                             <Grid>
                                 <ContentControl Content="{Binding Category}"
                                     ContentTemplate="{Binding Category, Converter={StaticResource CategoryIconTemplateConverter}}"
-                                    Visibility="{Binding HasThumbnail, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                    Visibility="{Binding ShowCategoryGlyph, Converter={StaticResource BoolToVisibilityConverter}}"
                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <Image Source="{Binding FileTypeIconSource}" Stretch="Uniform"
+                                       Width="32" Height="32"
+                                       Visibility="{Binding ShowFileTypeIcon, Converter={StaticResource BoolToVisibilityConverter}}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
                                 <Image Source="{Binding ThumbnailSource}" Stretch="UniformToFill"
                                        Visibility="{Binding HasThumbnail, Converter={StaticResource BoolToVisibilityConverter}}"
                                        ImageFailed="FileThumbnail_ImageFailed" />
