@@ -788,9 +788,9 @@ public sealed partial class ResultsPage : Page
 
     // Bound to each file row's thumbnail/icon Border's Tapped event in
     // ResultsPage.xaml. Opens the side-by-side comparison viewer over every
-    // file in the tapped file's duplicate group - only for media categories
-    // (Image/Video/Audio) where there's something to actually preview;
-    // tapping a document/archive/executable/other row's icon is a no-op.
+    // file in the tapped file's duplicate group - for any file the compare
+    // viewer can preview (media, code/markdown/text, PDF). Tapping a row whose
+    // type has no viewer (proprietary/binary) is a no-op.
     private void FileThumbnail_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
     {
         if (sender is not FrameworkElement { DataContext: SelectableFile file })
@@ -798,7 +798,7 @@ public sealed partial class ResultsPage : Page
             return;
         }
 
-        if (file.Category is not (MimeCategory.Image or MimeCategory.Video or MimeCategory.Audio))
+        if (Controls.FileViewerRouter.ForPath(file.Path, file.Category) == Controls.FileViewerKind.None)
         {
             return;
         }
