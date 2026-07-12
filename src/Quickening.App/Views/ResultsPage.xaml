@@ -206,6 +206,7 @@
                             from.
                         -->
                         <MenuFlyout Opening="FileRowContextMenu_Opening">
+                            <MenuFlyoutItem Text="Open file" Click="OpenFile_Click" />
                             <MenuFlyoutItem Text="Open file location" Click="OpenFileLocation_Click" />
                         </MenuFlyout>
                     </Border.ContextFlyout>

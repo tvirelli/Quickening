@@ -1330,6 +1330,25 @@ public sealed partial class ResultsPage : Page
         }
     }
 
+    private void OpenFile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuFlyoutItem { DataContext: SelectableFile file })
+        {
+            return;
+        }
+
+        try
+        {
+            // UseShellExecute opens the file in whatever app is registered for
+            // its type - the point of "Open file".
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(file.Path) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            App.Logger?.LogError($"Opening file '{file.Path}' failed: {ex}");
+        }
+    }
+
     private void OpenFileLocation_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not MenuFlyoutItem { DataContext: SelectableFile file })
