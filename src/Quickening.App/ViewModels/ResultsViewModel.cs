@@ -25,6 +25,11 @@ public sealed class SelectableFile : INotifyPropertyChanged
     public required MimeCategory Category { get; init; }
     public required DateTime LastWriteTimeUtc { get; init; }
 
+    // default(DateTime) = "unknown" for any construction that doesn't set it;
+    // only the duplicate/similarity maps carry the real value from FileRecord.
+    // Read by DuplicateGroupViewModel.IsLikelyCreatedTogether.
+    public DateTime CreationTimeUtc { get; init; }
+
     // Backs the per-file icon's Foreground in ResultsPage.xaml, so a file's
     // row icon is colored to match its category - the same fixed palette
     // used by the donut chart and the Results sidebar (see CategoryColors).
@@ -175,6 +180,14 @@ public sealed class DuplicateGroupViewModel : INotifyPropertyChanged
     }
 
     public required ObservableCollection<SelectableFile> Files { get; init; }
+
+    // True when every copy in this group shares one creation second - a signal
+    // they were written together as a set (installer/extractor) rather than
+    // manually duplicated. Drives the "Created together" badge and is skipped by
+    // SelectRecommended. See Quickening.Core.Safety.CreatedTogetherDetector.
+    public bool IsLikelyCreatedTogether =>
+        Quickening.Core.Safety.CreatedTogetherDetector.IsLikelyCreatedTogether(
+            Files.Select(f => f.CreationTimeUtc).ToList());
 }
 
 /// <summary>
@@ -267,6 +280,7 @@ public sealed class ResultsViewModel
                 SizeBytes = f.SizeBytes,
                 Category = f.Category,
                 LastWriteTimeUtc = f.LastWriteTimeUtc,
+                CreationTimeUtc = f.CreationTimeUtc,
             }).ToList())
             .ToList();
 
@@ -290,6 +304,7 @@ public sealed class ResultsViewModel
                 SizeBytes = f.SizeBytes,
                 Category = f.Category,
                 LastWriteTimeUtc = f.LastWriteTimeUtc,
+                CreationTimeUtc = f.CreationTimeUtc,
             }).ToList();
 
             // Hint pill (4k's "SHARPER · LARGER") - simplified to file size
@@ -702,6 +717,14 @@ public sealed class ResultsViewModel
         var rule = App.Settings.PreferredKeepRule;
         foreach (var group in Groups)
         {
+            // "Created together" sets (installer/extractor output) are never
+            // pre-ticked - deleting part of such a set can break whatever wrote
+            // it. The user can still remove them manually.
+            if (group.IsLikelyCreatedTogether)
+            {
+                continue;
+            }
+
             var keeper = ChooseKeeper(group.Files, rule);
             foreach (var file in group.Files)
             {
