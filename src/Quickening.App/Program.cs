@@ -18,6 +18,18 @@ public static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        // Process-wide backstop against catastrophic regex backtracking (ReDoS).
+        // ColorCode's CSS grammar (used by the code preview for .css/.less/.scss)
+        // backtracks forever on some real stylesheet content — a tiny slick.less
+        // hangs its tokenizer indefinitely — and FormatRichTextBlock runs that
+        // regex synchronously on the UI thread, so the whole app went "not
+        // responding". This caps EVERY .NET regex that doesn't set its own
+        // timeout: a runaway match now throws RegexMatchTimeoutException (which
+        // the code-preview builder catches and degrades to plain monospace)
+        // instead of pinning a core forever. Must run before the first Regex is
+        // constructed, so it is the very first statement in the process.
+        AppDomain.CurrentDomain.SetData("REGEX_DEFAULT_MATCH_TIMEOUT", TimeSpan.FromSeconds(1));
+
         VelopackApp.Build().Run();
 
         global::WinRT.ComWrappersSupport.InitializeComWrappers();
