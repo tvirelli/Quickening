@@ -65,16 +65,19 @@
             <Setter Property="FontWeight" Value="Bold" />
         </Style>
 
-        <!-- Untinted size field (2h's "max — MB") -->
+        <!-- Untinted size field (2h's "max — MB"). Spin buttons hidden - the ±
+             chevrons cluttered the field and clashed with the pill filters. -->
         <Style x:Key="SizeFilterNumberBoxStyle" TargetType="NumberBox">
             <Setter Property="Width" Value="92" />
-            <Setter Property="SpinButtonPlacementMode" Value="Compact" />
+            <Setter Property="SpinButtonPlacementMode" Value="Hidden" />
             <Setter Property="Background" Value="{StaticResource SurfaceCardBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource SurfaceCardBorderBrush}" />
             <Setter Property="CornerRadius" Value="{StaticResource RadiusInput}" />
             <Setter Property="FontFamily" Value="{StaticResource MonoFontFamily}" />
             <Setter Property="FontSize" Value="12" />
             <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
 
         <!--
@@ -98,7 +101,36 @@
             <Setter Property="FontFamily" Value="{StaticResource MonoFontFamily}" />
             <Setter Property="FontSize" Value="12" />
             <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Padding" Value="10,5,10,6" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
+
+        <!--
+            Tame WinUI's default text-field chrome for the filter inputs, matching
+            ResultsPage. Without this, focus flips the fill toward white and draws
+            a 2px accent underline - jarring on the dark surface. Keep the dark
+            rounded look across rest/hover/focus with a thin accent border as the
+            only focus cue. The active (pre-filled) size box sets its own
+            Background, which still wins over these defaults.
+        -->
+        <SolidColorBrush x:Key="TextControlBackground" Color="#0BFFFFFF" />
+        <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#12FFFFFF" />
+        <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#16FFFFFF" />
+        <SolidColorBrush x:Key="TextControlBackgroundDisabled" Color="#08FFFFFF" />
+        <SolidColorBrush x:Key="TextControlBorderBrush" Color="#14FFFFFF" />
+        <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#26FFFFFF" />
+        <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="{StaticResource AccentColor}" />
+        <SolidColorBrush x:Key="TextControlBorderBrushDisabled" Color="#0AFFFFFF" />
+        <SolidColorBrush x:Key="TextControlForeground" Color="#C6CEE8" />
+        <SolidColorBrush x:Key="TextControlForegroundPointerOver" Color="#E8EDFF" />
+        <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#E8EDFF" />
+        <SolidColorBrush x:Key="TextControlForegroundDisabled" Color="#7A84A6" />
+        <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#7A84A6" />
+        <SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="#8A94B6" />
+        <SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="#7A84A6" />
+        <Thickness x:Key="TextControlBorderThemeThicknessFocused">1</Thickness>
     </Page.Resources>
 
     <!-- Explicit flat background - see ResultsPage.xaml's identical comment. -->

@@ -119,18 +119,120 @@
             <Setter Property="FontFamily" Value="{StaticResource MonoFontFamily}" />
             <Setter Property="FontSize" Value="12" />
             <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+            <!-- Height comes from symmetric padding, not MinHeight: an inflated
+                 MinHeight leaves the placeholder pinned to the top because the
+                 TextBox template doesn't center content in the extra space. -->
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="12,9,12,9" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
 
-        <!-- Min/Max size NumberBox restyle (screen 2g's "min — MB"/"max — MB" pill fields) -->
+        <!-- Min/Max size NumberBox restyle (screen 2g's "min — MB"/"max — MB" pill fields).
+             Spin buttons hidden - the ± chevrons cluttered the field and clashed
+             with the pill filters; you type the value instead. -->
         <Style x:Key="SizeFilterNumberBoxStyle" TargetType="NumberBox">
             <Setter Property="Width" Value="92" />
-            <Setter Property="SpinButtonPlacementMode" Value="Compact" />
+            <Setter Property="SpinButtonPlacementMode" Value="Hidden" />
             <Setter Property="Background" Value="{StaticResource SurfaceCardBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource SurfaceCardBorderBrush}" />
             <Setter Property="CornerRadius" Value="{StaticResource RadiusInput}" />
             <Setter Property="FontFamily" Value="{StaticResource MonoFontFamily}" />
             <Setter Property="FontSize" Value="12" />
             <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <!--
+            Tame WinUI's default text-field chrome for the filter inputs (these six
+            NumberBox/TextBox fields are the only text inputs on this page). Left
+            alone, focus flips the fill toward white and draws a 2px accent
+            underline - jarring on the dark surface and the reason the size /
+            modified / copies / path fields looked out of place beside the pill
+            filters. Keep the dark rounded look across rest/hover/focus, with a
+            thin accent border (not an underline) as the only focus cue.
+        -->
+        <SolidColorBrush x:Key="TextControlBackground" Color="#0BFFFFFF" />
+        <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#12FFFFFF" />
+        <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#16FFFFFF" />
+        <SolidColorBrush x:Key="TextControlBackgroundDisabled" Color="#08FFFFFF" />
+        <SolidColorBrush x:Key="TextControlBorderBrush" Color="#14FFFFFF" />
+        <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#26FFFFFF" />
+        <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="{StaticResource AccentColor}" />
+        <SolidColorBrush x:Key="TextControlBorderBrushDisabled" Color="#0AFFFFFF" />
+        <SolidColorBrush x:Key="TextControlForeground" Color="#C6CEE8" />
+        <SolidColorBrush x:Key="TextControlForegroundPointerOver" Color="#E8EDFF" />
+        <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#E8EDFF" />
+        <SolidColorBrush x:Key="TextControlForegroundDisabled" Color="#7A84A6" />
+        <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#7A84A6" />
+        <SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="#8A94B6" />
+        <SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="#7A84A6" />
+        <Thickness x:Key="TextControlBorderThemeThicknessFocused">1</Thickness>
+
+        <!-- The bordered shell of a size "value + unit" input group; the value
+             TextBox and unit ComboBox inside it are chromeless (see the size
+             row's StackPanel.Resources) so the whole thing reads as one field. -->
+        <Style x:Key="SizeInputGroupStyle" TargetType="Border">
+            <Setter Property="Background" Value="#0BFFFFFF" />
+            <Setter Property="BorderBrush" Value="#14FFFFFF" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusInput}" />
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <!-- Copies + size-unit dropdowns, dark and rounded to match the fields. -->
+        <Style x:Key="FilterComboBoxStyle" TargetType="ComboBox">
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="MinWidth" Value="62" />
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusInput}" />
+            <Setter Property="FontFamily" Value="{StaticResource MonoFontFamily}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="10,0,8,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+
+        <!-- Modified-date pickers. Stretch to the rail width like the other fields. -->
+        <Style x:Key="FilterDatePickerStyle" TargetType="CalendarDatePicker">
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusInput}" />
+            <Setter Property="FontFamily" Value="{StaticResource MonoFontFamily}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <!-- Match the dropdowns to the tamed text fields (dark surface, thin
+             border, accent on press) instead of WinUI's default light chrome. -->
+        <SolidColorBrush x:Key="ComboBoxBackground" Color="#0BFFFFFF" />
+        <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver" Color="#12FFFFFF" />
+        <SolidColorBrush x:Key="ComboBoxBackgroundPressed" Color="#16FFFFFF" />
+        <SolidColorBrush x:Key="ComboBoxBackgroundDisabled" Color="#08FFFFFF" />
+        <SolidColorBrush x:Key="ComboBoxBackgroundFocused" Color="#16FFFFFF" />
+        <SolidColorBrush x:Key="ComboBoxBackgroundUnfocused" Color="#0BFFFFFF" />
+        <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="#14FFFFFF" />
+        <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="#26FFFFFF" />
+        <SolidColorBrush x:Key="ComboBoxBorderBrushPressed" Color="{StaticResource AccentColor}" />
+        <SolidColorBrush x:Key="ComboBoxBorderBrushDisabled" Color="#0AFFFFFF" />
+        <SolidColorBrush x:Key="ComboBoxForeground" Color="#C6CEE8" />
+        <SolidColorBrush x:Key="ComboBoxForegroundPointerOver" Color="#E8EDFF" />
+        <SolidColorBrush x:Key="ComboBoxForegroundPressed" Color="#E8EDFF" />
+        <SolidColorBrush x:Key="ComboBoxForegroundDisabled" Color="#7A84A6" />
+        <SolidColorBrush x:Key="ComboBoxPlaceHolderForeground" Color="#7A84A6" />
+        <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#FF151A28" />
+        <SolidColorBrush x:Key="ComboBoxDropDownForeground" Color="#C6CEE8" />
+        <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#22FFFFFF" />
+        <SolidColorBrush x:Key="ComboBoxDropDownGlyphForeground" Color="#9AA4C4" />
+
+        <!-- Uppercase section heading inside the filter rail (8c). -->
+        <Style x:Key="FilterSectionLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource BodyFontFamily}" />
+            <Setter Property="FontSize" Value="10.5" />
+            <Setter Property="FontWeight" Value="ExtraBold" />
+            <Setter Property="CharacterSpacing" Value="120" />
+            <Setter Property="Foreground" Value="#6B7699" />
         </Style>
 
         <!--
@@ -321,9 +423,6 @@
     <Grid Background="{StaticResource BgBaseBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -350,94 +449,234 @@
                     Content="&#x21A7; Export CSV" AutomationProperties.Name="Export CSV" VerticalAlignment="Center" />
         </Grid>
 
-        <!-- Category filter chips + size-range filters (screen 2g line ~561-579) -->
-        <Grid Grid.Row="1" Padding="28,0,28,12" ColumnSpacing="10">
+        <!-- Body: permanent left filter rail + results list (8c Filter sidebar) -->
+        <Grid Grid.Row="1" Padding="28,0,28,12" ColumnSpacing="16">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="250" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <ListView x:Name="CategorySidebar" Grid.Column="0" SelectionMode="Single"
-                      SelectionChanged="CategorySidebar_SelectionChanged"
-                      ItemContainerStyle="{StaticResource CategoryChipItemStyle}"
-                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                      HorizontalAlignment="Left">
-                <ListView.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <StackPanel Orientation="Horizontal" Spacing="6" />
-                    </ItemsPanelTemplate>
-                </ListView.ItemsPanel>
-                <ListView.ItemTemplate>
-                    <DataTemplate>
-                        <Border Padding="14,7" controls:PillCornerRadius.Enabled="True" BorderThickness="1"
-                                Background="{Binding IsSelected, Converter={StaticResource ChipBackgroundConverter}}"
-                                BorderBrush="{Binding IsSelected, Converter={StaticResource ChipBorderConverter}}">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <Ellipse Width="8" Height="8" Fill="{Binding SwatchBrush}"
-                                         Visibility="{Binding HasSwatch, Converter={StaticResource BoolToVisibilityConverter}}" />
-                                <TextBlock Text="{Binding Label}" FontFamily="{StaticResource BodyFontFamily}"
-                                           FontSize="12.5" FontWeight="SemiBold"
-                                           Foreground="{Binding IsSelected, Converter={StaticResource ChipForegroundConverter}}" />
+            <!-- ===== FILTER RAIL ===== -->
+            <Border Grid.Column="0" CornerRadius="16" Background="#08FFFFFF"
+                    BorderBrush="#12FFFFFF" BorderThickness="1">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Padding="18,18,18,16" Spacing="18">
+                        <Grid>
+                            <TextBlock Text="Filters" FontFamily="{StaticResource BodyFontFamily}" FontSize="12.5"
+                                       FontWeight="ExtraBold" Foreground="{StaticResource TextSecondaryBrush}"
+                                       VerticalAlignment="Center" />
+                            <Button Content="Clear all" Click="ClearFilters_Click" HorizontalAlignment="Right"
+                                    Background="Transparent" BorderThickness="0" Padding="0"
+                                    Foreground="{StaticResource AccentLightBrush}" FontFamily="{StaticResource BodyFontFamily}"
+                                    FontSize="11.5" FontWeight="Bold" />
+                        </Grid>
+
+                        <!-- Category as a checklist with live match counts -->
+                        <StackPanel Spacing="9">
+                            <TextBlock Text="CATEGORY" Style="{StaticResource FilterSectionLabelStyle}" />
+                            <ListView x:Name="CategorySidebar" SelectionMode="None" IsItemClickEnabled="True"
+                                      ItemClick="CategoryItem_Click"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                      ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                <ListView.Resources>
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="#0AFFFFFF" />
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="#0AFFFFFF" />
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="#0AFFFFFF" />
+                                </ListView.Resources>
+                                <ListView.ItemContainerStyle>
+                                    <Style TargetType="ListViewItem">
+                                        <Setter Property="Padding" Value="6,5" />
+                                        <Setter Property="MinHeight" Value="0" />
+                                        <Setter Property="CornerRadius" Value="8" />
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    </Style>
+                                </ListView.ItemContainerStyle>
+                                <ListView.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Spacing="1" />
+                                    </ItemsPanelTemplate>
+                                </ListView.ItemsPanel>
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid ColumnSpacing="9">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Grid.Column="0" Width="16" Height="16" CornerRadius="5" BorderThickness="1.5"
+                                                    VerticalAlignment="Center"
+                                                    Background="{Binding IsSelected, Converter={StaticResource ChipBackgroundConverter}}"
+                                                    BorderBrush="{Binding IsSelected, Converter={StaticResource ChipBorderConverter}}">
+                                                <TextBlock Text="&#x2713;" FontSize="9" FontWeight="Bold"
+                                                           Foreground="{StaticResource AccentLighterBrush}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                           Visibility="{Binding IsSelected, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                            </Border>
+                                            <Ellipse Grid.Column="1" Width="8" Height="8" Fill="{Binding SwatchBrush}"
+                                                     VerticalAlignment="Center"
+                                                     Visibility="{Binding HasSwatch, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                            <TextBlock Grid.Column="2" Text="{Binding Label}" FontFamily="{StaticResource BodyFontFamily}"
+                                                       FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center"
+                                                       Foreground="{Binding IsSelected, Converter={StaticResource ChipForegroundConverter}}" />
+                                            <TextBlock Grid.Column="3" Text="{Binding CountText}" FontFamily="{StaticResource MonoFontFamily}"
+                                                       FontSize="11" Foreground="#6B7699" VerticalAlignment="Center" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                        </StackPanel>
+
+                        <!-- Size (value + MB/GB unit). The value box + unit dropdown
+                             render chromeless so each SizeInputGroup border reads as
+                             one field. Scoped here so the other rail controls keep
+                             their normal look. -->
+                        <StackPanel Spacing="8">
+                            <StackPanel.Resources>
+                                <SolidColorBrush x:Key="TextControlBackground" Color="Transparent" />
+                                <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="Transparent" />
+                                <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="Transparent" />
+                                <SolidColorBrush x:Key="TextControlBackgroundDisabled" Color="Transparent" />
+                                <Thickness x:Key="TextControlBorderThemeThickness">0</Thickness>
+                                <Thickness x:Key="TextControlBorderThemeThicknessFocused">0</Thickness>
+                                <SolidColorBrush x:Key="ComboBoxBackground" Color="Transparent" />
+                                <SolidColorBrush x:Key="ComboBoxBackgroundUnfocused" Color="Transparent" />
+                                <SolidColorBrush x:Key="ComboBoxBackgroundFocused" Color="Transparent" />
+                                <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver" Color="#16FFFFFF" />
+                                <SolidColorBrush x:Key="ComboBoxBackgroundPressed" Color="#1EFFFFFF" />
+                            </StackPanel.Resources>
+                            <TextBlock Text="SIZE" Style="{StaticResource FilterSectionLabelStyle}" />
+                            <Border Style="{StaticResource SizeInputGroupStyle}" HorizontalAlignment="Stretch">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Grid.Column="0" x:Name="MinSizeValueBox" PlaceholderText="min" MinHeight="0"
+                                             VerticalAlignment="Center" VerticalContentAlignment="Center" Padding="10,0,2,0"
+                                             FontFamily="{StaticResource MonoFontFamily}" FontSize="12"
+                                             Foreground="{StaticResource TextSecondaryBrush}" TextChanged="FilterChanged" />
+                                    <ComboBox Grid.Column="1" x:Name="MinSizeUnitCombo" SelectedIndex="0" BorderThickness="0" MinWidth="56"
+                                              VerticalAlignment="Center" Padding="6,0,6,0" FontFamily="{StaticResource MonoFontFamily}"
+                                              FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" SelectionChanged="FilterChanged">
+                                        <ComboBoxItem Content="MB" />
+                                        <ComboBoxItem Content="GB" />
+                                    </ComboBox>
+                                </Grid>
+                            </Border>
+                            <Border Style="{StaticResource SizeInputGroupStyle}" HorizontalAlignment="Stretch">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Grid.Column="0" x:Name="MaxSizeValueBox" PlaceholderText="max" MinHeight="0"
+                                             VerticalAlignment="Center" VerticalContentAlignment="Center" Padding="10,0,2,0"
+                                             FontFamily="{StaticResource MonoFontFamily}" FontSize="12"
+                                             Foreground="{StaticResource TextSecondaryBrush}" TextChanged="FilterChanged" />
+                                    <ComboBox Grid.Column="1" x:Name="MaxSizeUnitCombo" SelectedIndex="0" BorderThickness="0" MinWidth="56"
+                                              VerticalAlignment="Center" Padding="6,0,6,0" FontFamily="{StaticResource MonoFontFamily}"
+                                              FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" SelectionChanged="FilterChanged">
+                                        <ComboBoxItem Content="MB" />
+                                        <ComboBoxItem Content="GB" />
+                                    </ComboBox>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Modified -->
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="MODIFIED" Style="{StaticResource FilterSectionLabelStyle}" />
+                            <CalendarDatePicker x:Name="ModifiedAfterPicker" PlaceholderText="from"
+                                                DateFormat="{}{year.full}-{month.integer(2)}-{day.integer(2)}"
+                                                Style="{StaticResource FilterDatePickerStyle}" HorizontalAlignment="Stretch"
+                                                DateChanged="FilterChanged" />
+                            <CalendarDatePicker x:Name="ModifiedBeforePicker" PlaceholderText="to"
+                                                DateFormat="{}{year.full}-{month.integer(2)}-{day.integer(2)}"
+                                                Style="{StaticResource FilterDatePickerStyle}" HorizontalAlignment="Stretch"
+                                                DateChanged="FilterChanged" />
+                        </StackPanel>
+
+                        <!-- Path contains -->
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="PATH CONTAINS" Style="{StaticResource FilterSectionLabelStyle}" />
+                            <TextBox x:Name="PathContainsBox" PlaceholderText="folder or file name"
+                                     HorizontalAlignment="Stretch" Style="{StaticResource DateFilterTextBoxStyle}"
+                                     TextChanged="FilterChanged" />
+                        </StackPanel>
+
+                        <!-- Copies + Extension -->
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Spacing="8">
+                                <TextBlock Text="COPIES" Style="{StaticResource FilterSectionLabelStyle}" />
+                                <ComboBox x:Name="CopiesCombo" PlaceholderText="any" HorizontalAlignment="Stretch" MinWidth="0"
+                                          Style="{StaticResource FilterComboBoxStyle}" SelectionChanged="FilterChanged">
+                                    <ComboBoxItem Content="2" />
+                                    <ComboBoxItem Content="3" />
+                                    <ComboBoxItem Content="4" />
+                                    <ComboBoxItem Content="5" />
+                                    <ComboBoxItem Content="6" />
+                                    <ComboBoxItem Content="7" />
+                                    <ComboBoxItem Content="8" />
+                                    <ComboBoxItem Content="9" />
+                                    <ComboBoxItem Content="10+" />
+                                </ComboBox>
                             </StackPanel>
-                        </Border>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
-
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <TextBlock Text="Size" FontFamily="{StaticResource BodyFontFamily}" FontSize="12" FontWeight="SemiBold"
-                           Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
-                <NumberBox x:Name="MinSizeBox" PlaceholderText="min — MB" Style="{StaticResource SizeFilterNumberBoxStyle}"
-                           ValueChanged="FilterChanged" />
-                <NumberBox x:Name="MaxSizeBox" PlaceholderText="max — MB" Style="{StaticResource SizeFilterNumberBoxStyle}"
-                           ValueChanged="FilterChanged" />
-                <Button Content="Clear" Click="ClearFilters_Click" Background="Transparent" BorderThickness="0" Padding="4,0"
-                        Foreground="{StaticResource AccentLightBrush}" FontFamily="{StaticResource BodyFontFamily}"
-                        FontSize="12" FontWeight="Bold" />
-            </StackPanel>
-        </Grid>
-
-        <!-- Second filter row: modified date range, min copies, path-contains search (screen 2i / new-screens 4i) -->
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Padding="28,0,28,12">
-            <TextBlock Text="Modified" FontFamily="{StaticResource BodyFontFamily}" FontSize="12" FontWeight="SemiBold"
-                       Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
-            <TextBox x:Name="ModifiedAfterBox" PlaceholderText="from — yyyy-mm-dd" Width="130"
-                     Style="{StaticResource DateFilterTextBoxStyle}" TextChanged="FilterChanged" />
-            <TextBox x:Name="ModifiedBeforeBox" PlaceholderText="to — yyyy-mm-dd" Width="130"
-                     Style="{StaticResource DateFilterTextBoxStyle}" TextChanged="FilterChanged" />
-            <TextBlock Text="Copies" Margin="8,0,0,0" FontFamily="{StaticResource BodyFontFamily}" FontSize="12"
-                       FontWeight="SemiBold" Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
-            <NumberBox x:Name="MinGroupSizeBox" PlaceholderText="2+" Style="{StaticResource SizeFilterNumberBoxStyle}"
-                       Width="70" ValueChanged="FilterChanged" />
-            <TextBlock Text="Path contains" Margin="8,0,0,0" FontFamily="{StaticResource BodyFontFamily}" FontSize="12"
-                       FontWeight="SemiBold" Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
-            <TextBox x:Name="PathContainsBox" PlaceholderText="folder or file name…" Width="220"
-                     Style="{StaticResource DateFilterTextBoxStyle}" TextChanged="FilterChanged" />
-        </StackPanel>
-
-        <!-- Bulk-select toolbar + "Recommended applied" indicator (screen 2g line ~580-587) -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" Padding="28,0,28,12">
-            <TextBlock Text="Select:" FontFamily="{StaticResource BodyFontFamily}" FontSize="12" FontWeight="SemiBold"
-                       Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
-            <Button Content="All" Click="SelectAll_Click" Style="{StaticResource BulkChipButtonStyle}"
-                    AutomationProperties.Name="Select All" />
-            <Button Content="None" Click="SelectNone_Click" Style="{StaticResource BulkChipButtonStyle}"
-                    AutomationProperties.Name="Select None" />
-            <Button Content="Invert" Click="InvertSelection_Click" Style="{StaticResource BulkChipButtonStyle}"
-                    AutomationProperties.Name="Invert Selection" />
-            <Button Content="Over 100 MB…" Click="SelectOver100Mb_Click" Style="{StaticResource BulkChipButtonStyle}"
-                    AutomationProperties.Name="Select Over 100 MB" />
-            <Button Content="By folder…" Click="SelectByFolder_Click" Style="{StaticResource BulkChipButtonStyle}"
-                    AutomationProperties.Name="Select By Folder" />
-            <Border x:Name="RecommendedAppliedPill" Margin="8,0,0,0" Padding="14,6" controls:PillCornerRadius.Enabled="True"
-                    Background="{StaticResource AccentSelectedFillBrush}" BorderBrush="{StaticResource AccentBrush}"
-                    BorderThickness="1" Visibility="Collapsed">
-                <TextBlock Text="&#x26A1; Recommended applied — newest copy kept in every group"
-                           FontFamily="{StaticResource BodyFontFamily}" FontSize="12" FontWeight="Bold"
-                           Foreground="{StaticResource AccentLighterBrush}" />
+                            <StackPanel Grid.Column="1" Spacing="8">
+                                <TextBlock Text="EXT" Style="{StaticResource FilterSectionLabelStyle}" />
+                                <ComboBox x:Name="ExtensionCombo" PlaceholderText="any" HorizontalAlignment="Stretch" MinWidth="0"
+                                          Style="{StaticResource FilterComboBoxStyle}" SelectionChanged="FilterChanged" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
             </Border>
-        </StackPanel>
+
+            <!-- ===== LIST AREA ===== -->
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- Minimal list header: select actions + result count (8c) -->
+                <Grid Grid.Row="0" Padding="0,0,0,12">
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left" VerticalAlignment="Center">
+                        <TextBlock Text="Select:" FontFamily="{StaticResource BodyFontFamily}" FontSize="12" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
+                        <Button Content="All" Click="SelectAll_Click" Style="{StaticResource BulkChipButtonStyle}"
+                                AutomationProperties.Name="Select All" />
+                        <Button Content="None" Click="SelectNone_Click" Style="{StaticResource BulkChipButtonStyle}"
+                                AutomationProperties.Name="Select None" />
+                        <Button Content="Invert" Click="InvertSelection_Click" Style="{StaticResource BulkChipButtonStyle}"
+                                AutomationProperties.Name="Invert Selection" />
+                        <Button Content="More &#x25BE;" Style="{StaticResource BulkChipButtonStyle}"
+                                AutomationProperties.Name="More select options">
+                            <Button.Flyout>
+                                <MenuFlyout>
+                                    <MenuFlyoutItem Text="Over 100 MB…" Click="SelectOver100Mb_Click" />
+                                    <MenuFlyoutItem Text="By folder…" Click="SelectByFolder_Click" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                        <Border x:Name="RecommendedAppliedPill" Margin="6,0,0,0" Padding="12,6" controls:PillCornerRadius.Enabled="True"
+                                Background="{StaticResource AccentSelectedFillBrush}" BorderBrush="{StaticResource AccentBrush}"
+                                BorderThickness="1" Visibility="Collapsed">
+                            <TextBlock Text="&#x26A1; Recommended applied"
+                                       FontFamily="{StaticResource BodyFontFamily}" FontSize="12" FontWeight="Bold"
+                                       Foreground="{StaticResource AccentLighterBrush}" />
+                        </Border>
+                    </StackPanel>
+                    <TextBlock x:Name="ResultCountText" HorizontalAlignment="Right" VerticalAlignment="Center"
+                               FontFamily="{StaticResource BodyFontFamily}" FontSize="12"
+                               Foreground="{StaticResource TextFaintBrush}" />
+                </Grid>
 
         <!--
             Grouped results list (screen 2g line ~588-664). ItemsSource is
@@ -462,7 +701,7 @@
             selected text sweeping down the list). Turning it off makes rows
             simply appear as they realize, with no grey flash.
         -->
-        <ListView x:Name="GroupsListView" Grid.Row="4" Padding="28,0,28,12"
+                <ListView x:Name="GroupsListView" Grid.Row="1" Padding="0"
                   SelectionMode="None" IsItemClickEnabled="False"
                   ShowsScrollingPlaceholders="False"
                   ScrollViewer.HorizontalScrollBarVisibility="Disabled">
@@ -490,10 +729,12 @@
                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 </Style>
             </ListView.ItemContainerStyle>
-        </ListView>
+                </ListView>
+            </Grid>
+        </Grid>
 
         <!-- Sticky footer: live "will come home" stat + Remove Selected (screen 2g line ~665-671) -->
-        <Border Grid.Row="5" Background="{StaticResource FooterBarAcrylicBrush}" BorderBrush="{StaticResource SurfaceCardBorderBrush}"
+        <Border Grid.Row="2" Background="{StaticResource FooterBarAcrylicBrush}" BorderBrush="{StaticResource SurfaceCardBorderBrush}"
                 BorderThickness="0,1,0,0" Padding="28,16">
             <Grid>
                 <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" HorizontalAlignment="Left">
@@ -513,6 +754,6 @@
             </Grid>
         </Border>
 
-        <controls:MediaComparisonViewer x:Name="ComparisonViewer" Grid.Row="0" Grid.RowSpan="6" Visibility="Collapsed" />
+        <controls:MediaComparisonViewer x:Name="ComparisonViewer" Grid.Row="0" Grid.RowSpan="3" Visibility="Collapsed" />
     </Grid>
 </Page>

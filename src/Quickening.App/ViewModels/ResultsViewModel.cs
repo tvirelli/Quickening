@@ -343,6 +343,15 @@ public sealed class ResultsViewModel
     // filters (category/size/date) don't need since they're not free text.
     public string? PathContains { get; set; }
 
+    // "Extension" dropdown - an exact (case-insensitive) file-extension match,
+    // e.g. ".png". The picklist is AvailableExtensions, populated from the loaded
+    // results so it only ever offers extensions that are actually present.
+    public string? ExtensionFilter { get; set; }
+
+    // Distinct file extensions across the last-loaded results (lower-cased, with
+    // the leading dot, sorted), for the Extension dropdown to bind to.
+    public IReadOnlyList<string> AvailableExtensions { get; private set; } = Array.Empty<string>();
+
     public ResultsViewModel() : this(new RecycleBinService(), null)
     {
     }
@@ -364,6 +373,20 @@ public sealed class ResultsViewModel
                 LastWriteTimeUtc = f.LastWriteTimeUtc,
                 CreationTimeUtc = f.CreationTimeUtc,
             }).ToList())
+            .ToList();
+
+        // Only offer an extension the user can actually filter to a result. A
+        // group is pruned once it drops below 2 files (ApplyFilters), so an
+        // extension is only useful if SOME group holds 2+ files of it - e.g. a
+        // lone "photo.jpg.bak" paired with "photo.jpg" would otherwise list
+        // ".bak" but filtering to it prunes the group and shows nothing.
+        AvailableExtensions = _allGroups
+            .SelectMany(g => g
+                .GroupBy(f => System.IO.Path.GetExtension(f.Path).ToLowerInvariant())
+                .Where(byExt => !string.IsNullOrEmpty(byExt.Key) && byExt.Count() >= 2)
+                .Select(byExt => byExt.Key))
+            .Distinct()
+            .OrderBy(ext => ext, StringComparer.Ordinal)
             .ToList();
 
         ApplyFilters();
@@ -479,6 +502,12 @@ public sealed class ResultsViewModel
         }
 
         if (!string.IsNullOrEmpty(PathContains) && file.Path.IndexOf(PathContains, StringComparison.OrdinalIgnoreCase) < 0)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrEmpty(ExtensionFilter)
+            && !System.IO.Path.GetExtension(file.Path).Equals(ExtensionFilter, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }

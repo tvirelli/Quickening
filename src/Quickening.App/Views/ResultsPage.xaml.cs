@@ -158,12 +158,7 @@ public sealed partial class ResultsPage : Page
             // PopulateCategorySidebar resets the sidebar below - the same
             // double-rebuild class ClearFilters_Click guards against.
             _suppressFilterControlEvents = true;
-            MinSizeBox.Value = double.NaN;
-            MaxSizeBox.Value = double.NaN;
-            MinGroupSizeBox.Value = double.NaN;
-            ModifiedAfterBox.Text = "";
-            ModifiedBeforeBox.Text = "";
-            PathContainsBox.Text = "";
+            ResetFilterControls();
             _viewModel.CategoryFilter.Clear();
             _viewModel.MinSizeBytes = null;
             _viewModel.MaxSizeBytes = null;
@@ -171,10 +166,12 @@ public sealed partial class ResultsPage : Page
             _viewModel.ModifiedAfter = null;
             _viewModel.ModifiedBefore = null;
             _viewModel.PathContains = null;
+            _viewModel.ExtensionFilter = null;
 
             _viewModel.LoadGroups(scanResult.DuplicateGroups);
             _viewModel.LoadSimilarityGroups(scanResult.SimilarityGroups);
             PopulateCategorySidebar(scanResult);
+            PopulateExtensionCombo();
             _suppressFilterControlEvents = false;
 
             RefreshSummary();
@@ -214,12 +211,15 @@ public sealed partial class ResultsPage : Page
     {
         var breakdown = CategoryBreakdownCalculator.Calculate(scanResult.DuplicateGroups);
 
-        var items = new List<CategorySidebarItem> { new(Category: null, Label: "All") };
-        items.AddRange(breakdown.Select(b => new CategorySidebarItem(b.Category, ChipLabel(b.Category))));
+        var files = scanResult.DuplicateGroups.SelectMany(g => g.Files).ToList();
+        var items = new List<CategorySidebarItem> { new(Category: null, Label: "All") { Count = files.Count } };
+        items.AddRange(breakdown.Select(b => new CategorySidebarItem(b.Category, ChipLabel(b.Category))
+        {
+            Count = files.Count(f => f.Category == b.Category),
+        }));
 
         CategorySidebar.ItemsSource = items;
-        CategorySidebar.SelectedIndex = 0;
-        items[0].IsSelected = true;
+        items[0].IsSelected = true; // "All"
     }
 
     // Short chip labels exactly as screen 2g shows them ("Docs"/"Exe", not
@@ -239,40 +239,57 @@ public sealed partial class ResultsPage : Page
         _ => category.ToString(),
     };
 
-    private void CategorySidebar_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    // The category rail is a multi-select checklist: tap specific categories to
+    // include several at once, or tap "All" to clear the category filter. "All"
+    // is checked exactly when no specific category is.
+    private void CategoryItem_Click(object sender, ItemClickEventArgs e)
     {
-        if (_suppressFilterControlEvents)
+        if (_suppressFilterControlEvents || e.ClickedItem is not CategorySidebarItem clicked
+            || CategorySidebar.ItemsSource is not IEnumerable<CategorySidebarItem> source)
         {
             return;
         }
 
-        if (CategorySidebar.SelectedItem is not CategorySidebarItem item)
+        var items = source.ToList();
+        if (clicked.Category is null)
         {
-            return;
-        }
-
-        // Drives the chip's selected visual (see CategoryChipItemStyle's
-        // comment in ResultsPage.xaml) - ListView's own native selection
-        // brushes aren't available to set via ItemContainerStyle in this
-        // WinUI3 version, so every chip's IsSelected is kept in sync with
-        // the ListView's real SelectedItem here instead.
-        if (CategorySidebar.ItemsSource is IEnumerable<CategorySidebarItem> allItems)
-        {
-            foreach (var chip in allItems)
+            // "All" resets the category filter.
+            foreach (var item in items)
             {
-                chip.IsSelected = ReferenceEquals(chip, item);
+                item.IsSelected = item.Category is null;
+            }
+        }
+        else
+        {
+            clicked.IsSelected = !clicked.IsSelected;
+            var anySpecific = items.Any(item => item.Category is not null && item.IsSelected);
+            foreach (var item in items.Where(item => item.Category is null))
+            {
+                item.IsSelected = !anySpecific; // "All" mirrors "nothing specific chosen"
             }
         }
 
         _viewModel.CategoryFilter.Clear();
-        if (item.Category is { } category)
+        foreach (var item in items.Where(item => item is { Category: not null, IsSelected: true }))
         {
-            _viewModel.CategoryFilter.Add(category);
+            _viewModel.CategoryFilter.Add(item.Category!.Value);
         }
 
         _viewModel.ApplyFilters();
         RefreshSummary();
         RefreshSelectedSizeStat();
+    }
+
+    // Resets the category checklist to "All" (no category filter).
+    private void ResetCategorySelection()
+    {
+        if (CategorySidebar.ItemsSource is IEnumerable<CategorySidebarItem> items)
+        {
+            foreach (var item in items)
+            {
+                item.IsSelected = item.Category is null;
+            }
+        }
     }
 
     // "128 groups · 312 files · 9.4 GB reclaimable" - screen 2g's exact
@@ -295,6 +312,9 @@ public sealed partial class ResultsPage : Page
         SummaryText.Text = $"{groupCount} group{(groupCount == 1 ? "" : "s")} · "
             + $"{fileCount} file{(fileCount == 1 ? "" : "s")} · "
             + $"{FileSizeFormatter.Format(reclaimableBytes)} reclaimable";
+
+        // Slim per-list-header count next to the Select toolbar.
+        ResultCountText.Text = $"{groupCount} group{(groupCount == 1 ? "" : "s")}";
     }
 
     // "Looks-alike photos" (new-screens 4k) - attached to GroupsListView's
@@ -611,37 +631,80 @@ public sealed partial class ResultsPage : Page
     {
         _filterDebounceTimer?.Stop();
         _suppressFilterControlEvents = true;
-        MinSizeBox.Value = double.NaN;
-        MaxSizeBox.Value = double.NaN;
-        MinGroupSizeBox.Value = double.NaN;
-        ModifiedAfterBox.Text = "";
-        ModifiedBeforeBox.Text = "";
-        PathContainsBox.Text = "";
-        CategorySidebar.SelectedIndex = 0; // "All"
+        ResetFilterControls();
+        ResetCategorySelection();
         _suppressFilterControlEvents = false;
 
         _viewModel.CategoryFilter.Clear();
         SyncFiltersFromControlsAndApply();
     }
 
+    // Empties every filter input to its "no filter" state. Callers wrap this in
+    // _suppressFilterControlEvents so the resets don't each trigger a rebuild.
+    private void ResetFilterControls()
+    {
+        MinSizeValueBox.Text = "";
+        MaxSizeValueBox.Text = "";
+        MinSizeUnitCombo.SelectedIndex = 0; // MB
+        MaxSizeUnitCombo.SelectedIndex = 0; // MB
+        CopiesCombo.SelectedIndex = -1;     // "any"
+        ExtensionCombo.SelectedIndex = -1;  // "any"
+        ModifiedAfterPicker.Date = null;
+        ModifiedBeforePicker.Date = null;
+        PathContainsBox.Text = "";
+    }
+
+    // Fills the Extension dropdown with exactly the extensions present in the
+    // loaded results (view-model AvailableExtensions), so it never offers a type
+    // that isn't there. Runs under _suppressFilterControlEvents (set by callers).
+    private void PopulateExtensionCombo()
+    {
+        ExtensionCombo.Items.Clear();
+        foreach (var ext in _viewModel.AvailableExtensions)
+        {
+            ExtensionCombo.Items.Add(new ComboBoxItem { Content = ext });
+        }
+        ExtensionCombo.SelectedIndex = -1; // "any"
+    }
+
     private void SyncFiltersFromControlsAndApply()
     {
-        _viewModel.MinSizeBytes = MinSizeBox.Value is double min && !double.IsNaN(min)
-            ? (long)(min * 1024 * 1024)
-            : null;
-        _viewModel.MaxSizeBytes = MaxSizeBox.Value is double max && !double.IsNaN(max)
-            ? (long)(max * 1024 * 1024)
-            : null;
-        _viewModel.MinGroupSize = MinGroupSizeBox.Value is double minGroupSize && !double.IsNaN(minGroupSize)
-            ? (int)minGroupSize
-            : null;
-        _viewModel.ModifiedAfter = DateTime.TryParse(ModifiedAfterBox.Text, out var after) ? after : null;
-        _viewModel.ModifiedBefore = DateTime.TryParse(ModifiedBeforeBox.Text, out var before) ? before : null;
+        _viewModel.MinSizeBytes = SizeFieldToBytes(MinSizeValueBox.Text, MinSizeUnitCombo);
+        _viewModel.MaxSizeBytes = SizeFieldToBytes(MaxSizeValueBox.Text, MaxSizeUnitCombo);
+        _viewModel.MinGroupSize = SelectedCopies(CopiesCombo);
+        _viewModel.ModifiedAfter = ModifiedAfterPicker.Date?.Date;
+        _viewModel.ModifiedBefore = ModifiedBeforePicker.Date?.Date;
         _viewModel.PathContains = string.IsNullOrWhiteSpace(PathContainsBox.Text) ? null : PathContainsBox.Text;
+        _viewModel.ExtensionFilter = (ExtensionCombo.SelectedItem as ComboBoxItem)?.Content as string;
 
         _viewModel.ApplyFilters();
         RefreshSummary();
         RefreshSelectedSizeStat();
+    }
+
+    // Converts a size field (numeric text + MB/GB unit dropdown) to bytes. Blank
+    // or non-positive input means "no bound".
+    private static long? SizeFieldToBytes(string text, ComboBox unitCombo)
+    {
+        if (!double.TryParse(text, out var value) || value <= 0)
+        {
+            return null;
+        }
+
+        var unitBytes = unitCombo.SelectedIndex == 1 ? 1024L * 1024 * 1024 : 1024L * 1024; // GB : MB
+        return (long)(value * unitBytes);
+    }
+
+    // Reads the min-copies dropdown ("2".."9", "10+"); null when nothing is picked.
+    private static int? SelectedCopies(ComboBox combo)
+    {
+        if (combo.SelectedItem is ComboBoxItem { Content: string content }
+            && int.TryParse(content.TrimEnd('+'), out var copies))
+        {
+            return copies;
+        }
+
+        return null;
     }
 
     private void SelectAll_Click(object sender, RoutedEventArgs e)
@@ -1514,6 +1577,11 @@ public sealed partial class ResultsPage : Page
             this.Category = Category;
             this.Label = Label;
         }
+
+        // File count for this category in the loaded results (total for "All"),
+        // shown at the right of each checklist row.
+        public int Count { get; init; }
+        public string CountText => Count.ToString();
 
         public bool HasSwatch => Category is not null;
 
