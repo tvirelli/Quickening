@@ -235,6 +235,17 @@ public sealed partial class MediaComparisonViewer : UserControl
                 break;
         }
 
+        if (kind == FileViewerKind.Audio)
+        {
+            // Audio has no tall visual - a full-height tile leaves a thin waveform
+            // floating in a big empty box. Collapse the media row to a fixed band
+            // and let the card size to its content, vertically centered in the cell.
+            grid.RowDefinitions[0].Height = GridLength.Auto;
+            mediaHost.MinHeight = 0;
+            mediaHost.Height = 150;
+            border.VerticalAlignment = VerticalAlignment.Center;
+        }
+
         grid.Children.Add(BuildFooter(file, resources));
         return border;
     }

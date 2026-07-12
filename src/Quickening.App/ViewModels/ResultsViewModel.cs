@@ -124,6 +124,11 @@ public sealed class SelectableFile : INotifyPropertyChanged
         _thumbnailFailed = true;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImage)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasThumbnail)));
+        // Now that HasThumbnail is false the shell type icon is allowed to load;
+        // raise its source too so the fallback Image re-reads it instead of
+        // keeping the null it saw while the thumbnail was still expected. Without
+        // this, formats WIC can't decode (e.g. SVG) left a blank icon cell.
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FileTypeIconSource)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowCategoryGlyph)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowFileTypeIcon)));
     }
