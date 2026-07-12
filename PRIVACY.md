@@ -24,8 +24,6 @@ The current version of Quickening makes no network connections at all.
 
 A future version will check for updates by contacting GitHub (github.com, operated by Microsoft), where Quickening's releases are hosted. An update check sends only what any web request sends — your IP address and basic system details — and nothing about your files or your use of the app.
 
-The optional "Share anonymous usage stats" setting currently sends nothing — it exists for a possible future feature. If that ever becomes real, it will stay strictly opt-in, the data will be anonymous counts only (never file names or paths), and this policy will be updated first.
-
 ## Removing your data
 
 Uninstall Quickening and delete the %LocalAppData%\Quickening folder. That is everything.
@@ -36,7 +34,7 @@ The quickening.app website and donation pages are covered by the online privacy 
 
 ## Changes
 
-If this policy changes, the updated version ships with the app and is posted at quickening.app. Any material change — like usage stats becoming real — will be called out clearly before it takes effect.
+If this policy changes, the updated version ships with the app and is posted at quickening.app. Any material change will be called out clearly before it takes effect.
 
 ## Contact
 

@@ -117,15 +117,6 @@ public sealed class AppSettings
     public string? LastSeenVersion { get; set; }
 
     /// <summary>
-    /// Privacy group. Off by default. There is no telemetry backend/server
-    /// anywhere in this project - enabling this only turns on local
-    /// instrumentation (counts of scans run, space freed; never paths or
-    /// filenames) written to a local rolling log, not an actual network
-    /// send. See UsageStatsService's own doc comment.
-    /// </summary>
-    public bool ShareAnonymousUsageStats { get; set; }
-
-    /// <summary>
     /// True if path is under (or exactly equal to) one of TrustedFolderPaths.
     /// Used to skip the risky-extension warning for files a user has
     /// explicitly vouched for (e.g. a folder of VM disks or DB backups) -

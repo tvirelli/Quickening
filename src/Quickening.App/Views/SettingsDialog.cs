@@ -139,7 +139,6 @@ internal static class SettingsDialog
         groups.Children.Add(BuildDuplicatesGroup(resources));
         groups.Children.Add(BuildTrustedFoldersGroup(resources));
         groups.Children.Add(BuildAutomationGroup(resources));
-        groups.Children.Add(BuildPrivacyGroup(resources));
         groups.Children.Add(BuildAboutGroup(resources, dialog));
         scroller.Content = groups;
         root.Children.Add(scroller);
@@ -552,26 +551,6 @@ internal static class SettingsDialog
         row.Children.Add(targetButton);
 
         return row;
-    }
-
-    // ===== Privacy group =====
-
-    private static UIElement BuildPrivacyGroup(ResourceDictionary resources)
-    {
-        var toggle = BuildToggleRow(
-            resources,
-            "Share anonymous usage stats",
-            "Off unless you turn it on. Only ever counts of scans run and space freed - never file "
-                + "names, paths, or anything about your files. (Collected locally only for now - there's "
-                + "no server this gets sent to yet.)",
-            App.Settings.ShareAnonymousUsageStats,
-            isOn =>
-            {
-                App.Settings.ShareAnonymousUsageStats = isOn;
-                App.SaveSettings();
-            });
-
-        return BuildGroupCard(resources, "Privacy", toggle);
     }
 
     // ===== About group =====
