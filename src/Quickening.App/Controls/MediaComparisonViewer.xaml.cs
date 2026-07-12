@@ -56,7 +56,24 @@ public sealed partial class MediaComparisonViewer : UserControl
                 ? $"Same file, {groupFiles.Count} homes. Untick the one you want to keep."
                 : "These look alike but aren't identical - take a look before deciding what to keep.";
 
-        LayoutPanels(groupFiles);
+        // Building tiles can briefly block the UI thread (a code file's syntax
+        // highlight, a PDF or archive read). Show a spinner and defer the build
+        // one tick so the overlay paints first - the tap registers immediately
+        // instead of looking like nothing happened.
+        LoadingRing.IsActive = true;
+        LoadingRing.Visibility = Visibility.Visible;
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            try
+            {
+                LayoutPanels(groupFiles);
+            }
+            finally
+            {
+                LoadingRing.IsActive = false;
+                LoadingRing.Visibility = Visibility.Collapsed;
+            }
+        });
     }
 
     // Builds the responsive tile grid: min(count,4) star columns, ceil(count
@@ -150,12 +167,13 @@ public sealed partial class MediaComparisonViewer : UserControl
         Grid.SetRow(mediaHost, 0);
         grid.Children.Add(mediaHost);
 
-        switch (FileViewerRouter.ForPath(file.Path, file.Category))
+        var kind = FileViewerRouter.ForPath(file.Path, file.Category);
+        switch (kind)
         {
             case FileViewerKind.Video:
             case FileViewerKind.Audio:
             {
-                var controller = new MediaController(file, mediaHost, DispatcherQueue, resources);
+                var controller = new MediaController(file, mediaHost, DispatcherQueue, resources, isAudio: kind == FileViewerKind.Audio);
                 _controllers.Add(controller);
                 mediaHost.Child = controller.Element;
                 Grid.SetRow(controller.Controls, 1);
@@ -174,6 +192,10 @@ public sealed partial class MediaComparisonViewer : UserControl
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     VerticalAlignment = VerticalAlignment.Stretch,
                 };
+                // A transparent or dark image vanishes against the near-black
+                // media host; pick a backing that contrasts with the image's own
+                // luminance so it stays visible (also fixes transparent PNG/WebP).
+                ApplyAdaptiveImageBackground(mediaHost, file.Path);
                 break;
             case FileViewerKind.Markdown:
                 mediaHost.Child = BuildTextScroller(MarkdownLiteRenderer.Render(resources, ReadTextLines(file.Path)));
@@ -205,6 +227,64 @@ public sealed partial class MediaComparisonViewer : UserControl
         return System.IO.Path.GetExtension(path).Equals(".svg", StringComparison.OrdinalIgnoreCase)
             ? new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(uri)
             : new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(uri);
+    }
+
+    // Two backings the adaptive image logic chooses between: a light one behind
+    // dark/transparent content, a dark one behind light content.
+    private static readonly Brush LightImageBacking = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xEC, 0xEC, 0xEC));
+    private static readonly Brush DarkImageBacking = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x12, 0x16, 0x22));
+
+    private static void ApplyAdaptiveImageBackground(Border mediaHost, string path)
+    {
+        // SVG is vector - we can't cheaply sample its pixels - and SVG art is
+        // usually dark line work on transparency, so a light backing is the safe
+        // default.
+        if (System.IO.Path.GetExtension(path).Equals(".svg", StringComparison.OrdinalIgnoreCase))
+        {
+            mediaHost.Background = LightImageBacking;
+            return;
+        }
+
+        _ = ApplyAdaptiveImageBackgroundAsync(mediaHost, path);
+    }
+
+    private static async System.Threading.Tasks.Task ApplyAdaptiveImageBackgroundAsync(Border mediaHost, string path)
+    {
+        try
+        {
+            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
+            using var stream = await file.OpenReadAsync();
+            var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(stream);
+            // Sample a tiny 24x24 version - enough to judge overall lightness,
+            // negligible to decode.
+            var transform = new Windows.Graphics.Imaging.BitmapTransform { ScaledWidth = 24, ScaledHeight = 24 };
+            var pixels = await decoder.GetPixelDataAsync(
+                Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
+                Windows.Graphics.Imaging.BitmapAlphaMode.Straight,
+                transform,
+                Windows.Graphics.Imaging.ExifOrientationMode.IgnoreExifOrientation,
+                Windows.Graphics.Imaging.ColorManagementMode.DoNotColorManage);
+            var data = pixels.DetachPixelData();
+
+            double lumSum = 0, alphaSum = 0;
+            for (var i = 0; i + 3 < data.Length; i += 4)
+            {
+                double b = data[i], g = data[i + 1], r = data[i + 2];
+                var a = data[i + 3] / 255.0;
+                lumSum += (0.2126 * r + 0.7152 * g + 0.0722 * b) * a;
+                alphaSum += a;
+            }
+
+            // Near-fully-transparent images read as "dark content" -> light
+            // backing so the visible strokes show. Otherwise use the alpha-
+            // weighted mean luminance (0-255).
+            var avgLuminance = alphaSum > 0.5 ? lumSum / alphaSum : 0;
+            mediaHost.Background = avgLuminance < 128 ? LightImageBacking : DarkImageBacking;
+        }
+        catch (Exception ex)
+        {
+            App.Logger?.LogError($"Adaptive image background failed for '{path}': {ex}");
+        }
     }
 
     // Cap in-viewer text loads so a giant log can't hang the UI.
@@ -626,7 +706,10 @@ public sealed partial class MediaComparisonViewer : UserControl
         private const string PlayGlyph = "▶";   // ▶
         private const string PauseGlyph = "⏸";  // ⏸
 
-        public MediaPlayerElement Element { get; }
+        // The tile's main visual: the video surface for video, or an audio
+        // visualizer (glyph + animated bars) for audio - audio plays through the
+        // MediaPlayer with no video surface, so it gets its own look.
+        public FrameworkElement Element { get; }
         public FrameworkElement Controls { get; }
 
         private readonly MediaPlayer _player;
@@ -635,6 +718,8 @@ public sealed partial class MediaComparisonViewer : UserControl
         private readonly Border _mediaHost;
         private readonly ResourceDictionary _resources;
         private readonly string _path;
+        private readonly MediaPlayerElement? _videoElement;                              // null for audio
+        private readonly Microsoft.UI.Xaml.Media.Animation.Storyboard? _eqStoryboard;    // audio bars, null for video
         private readonly Button _playPause;
         private readonly Slider _seek;
         private readonly TextBlock _timeText;
@@ -649,7 +734,7 @@ public sealed partial class MediaComparisonViewer : UserControl
         private TimeSpan _duration;
         private TimeSpan _observedEnd; // true end captured at MediaEnded; corrects a bogus NaturalDuration
 
-        public MediaController(SelectableFile file, Border mediaHost, DispatcherQueue dispatcher, ResourceDictionary resources)
+        public MediaController(SelectableFile file, Border mediaHost, DispatcherQueue dispatcher, ResourceDictionary resources, bool isAudio)
         {
             _dispatcher = dispatcher;
             _mediaHost = mediaHost;
@@ -663,14 +748,27 @@ public sealed partial class MediaComparisonViewer : UserControl
             };
             _session = _player.PlaybackSession;
 
-            Element = new MediaPlayerElement
+            if (isAudio)
             {
-                AreTransportControlsEnabled = false,
-                Stretch = Stretch.Uniform,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                VerticalAlignment = VerticalAlignment.Stretch,
-            };
-            Element.SetMediaPlayer(_player);
+                // Audio has no video surface - the MediaPlayer plays sound on its
+                // own. Show a distinct audio look: a note glyph over equalizer
+                // bars that pulse while playing (paused when not).
+                _eqStoryboard = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
+                Element = BuildAudioVisualizer(resources, _eqStoryboard);
+            }
+            else
+            {
+                var videoElement = new MediaPlayerElement
+                {
+                    AreTransportControlsEnabled = false,
+                    Stretch = Stretch.Uniform,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    VerticalAlignment = VerticalAlignment.Stretch,
+                };
+                videoElement.SetMediaPlayer(_player);
+                _videoElement = videoElement;
+                Element = videoElement;
+            }
 
             _playPause = new Button
             {
@@ -821,6 +919,19 @@ public sealed partial class MediaComparisonViewer : UserControl
             {
                 _playPause.Content = isPlaying ? PauseGlyph : PlayGlyph;
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_playPause, isPlaying ? "Pause" : "Play");
+
+                // Pulse the equalizer bars only while sound is actually playing.
+                if (_eqStoryboard is not null)
+                {
+                    if (isPlaying)
+                    {
+                        _eqStoryboard.Resume();
+                    }
+                    else
+                    {
+                        _eqStoryboard.Pause();
+                    }
+                }
             });
         }
 
@@ -875,6 +986,80 @@ public sealed partial class MediaComparisonViewer : UserControl
                 _mediaHost.Child = BuildUnsupportedFallback();
                 Controls.Visibility = Visibility.Collapsed;
             });
+        }
+
+        // Audio look: a note glyph above a row of equalizer bars. Each bar
+        // scales vertically on its own loop (varied durations -> lively), all
+        // added to the shared storyboard the controller starts on play / pauses
+        // on stop. Built once per audio tile.
+        private static FrameworkElement BuildAudioVisualizer(
+            ResourceDictionary resources, Microsoft.UI.Xaml.Media.Animation.Storyboard storyboard)
+        {
+            var accent = (Brush)resources["AccentBrush"];
+
+            var container = new StackPanel
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Spacing = 18,
+            };
+
+            container.Children.Add(new TextBlock
+            {
+                Text = "♫", // ♫
+                FontSize = 40,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Foreground = accent,
+            });
+
+            var bars = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+                Height = 44,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
+            for (var i = 0; i < 5; i++)
+            {
+                var scale = new ScaleTransform { ScaleY = 0.35 };
+                bars.Children.Add(new Border
+                {
+                    Width = 7,
+                    Height = 44,
+                    CornerRadius = new CornerRadius(3.5),
+                    Background = accent,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5),
+                    RenderTransform = scale,
+                });
+
+                var animation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
+                {
+                    From = 0.3 + (i % 3) * 0.15,
+                    To = 1.0,
+                    Duration = new Duration(TimeSpan.FromMilliseconds(360 + i * 80)),
+                    AutoReverse = true,
+                    RepeatBehavior = Microsoft.UI.Xaml.Media.Animation.RepeatBehavior.Forever,
+                    EnableDependentAnimation = true,
+                };
+                Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(animation, scale);
+                Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(animation, "ScaleY");
+                storyboard.Children.Add(animation);
+            }
+
+            container.Children.Add(bars);
+
+            // Start (so the animation clock is live) then immediately pause, so the
+            // bars hold still until playback resumes them.
+            container.Loaded += (_, _) =>
+            {
+                storyboard.Begin();
+                storyboard.Pause();
+            };
+
+            return container;
         }
 
         private FrameworkElement BuildUnsupportedFallback()
@@ -996,7 +1181,8 @@ public sealed partial class MediaComparisonViewer : UserControl
                 _playPause.Click -= OnPlayPauseClick;
                 _seek.ValueChanged -= OnSeekValueChanged;
 
-                Element.SetMediaPlayer(null);
+                _eqStoryboard?.Stop();
+                _videoElement?.SetMediaPlayer(null);
                 _player.Pause();
                 _player.Source = null;
                 _player.Dispose();

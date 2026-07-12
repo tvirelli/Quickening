@@ -57,6 +57,12 @@
             -->
             <Grid x:Name="PanelsGrid" Grid.Row="1" Margin="0,24,0,0" />
 
+            <!-- Shown while the tiles build (deferred one tick in ShowGroup), so a
+                 tap on a slow-to-open file registers immediately. -->
+            <ProgressRing x:Name="LoadingRing" Grid.Row="1"
+                          Width="48" Height="48" IsActive="False" Visibility="Collapsed"
+                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+
             <TextBlock Grid.Row="2" Margin="0,18,0,0" HorizontalAlignment="Center"
                        FontFamily="{StaticResource BodyFontFamily}" FontSize="12.5"
                        Foreground="{StaticResource TextDisabledHintBrush}"
