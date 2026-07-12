@@ -97,6 +97,8 @@ public sealed partial class MediaComparisonViewer : UserControl
 
     private void DisposeControllers()
     {
+        CloseWebViews();
+
         foreach (var controller in _controllers)
         {
             controller.Dispose();
@@ -179,7 +181,7 @@ public sealed partial class MediaComparisonViewer : UserControl
                 mediaHost.Child = BuildTextScroller(BuildCodeOrText(file.Path, resources));
                 break;
             case FileViewerKind.Pdf:
-                mediaHost.Child = BuildNoPreview(file, resources); // Task 7 upgrades this to a real PDF viewer
+                mediaHost.Child = BuildPdfViewer(file, resources);
                 break;
             default:
                 mediaHost.Child = BuildNoPreview(file, resources);
@@ -314,6 +316,124 @@ public sealed partial class MediaComparisonViewer : UserControl
         };
         panel.Children.Add(open);
         return panel;
+    }
+
+    // PDF ladder: WebView2 (real Edge viewer) -> Windows.Data.Pdf bitmap pages
+    // -> "open externally". WebView2 is created lazily only for a PDF tile; the
+    // runtime is present on ~all Win10/11, and any absence/failure degrades.
+    private FrameworkElement BuildPdfViewer(SelectableFile file, ResourceDictionary resources)
+    {
+        var host = new Grid();
+        bool webView2Available;
+        try
+        {
+            webView2Available = !string.IsNullOrEmpty(
+                Microsoft.Web.WebView2.Core.CoreWebView2Environment.GetAvailableBrowserVersionString());
+        }
+        catch
+        {
+            webView2Available = false;
+        }
+
+        if (webView2Available)
+        {
+            try
+            {
+                var web = new Microsoft.UI.Xaml.Controls.WebView2();
+                host.Children.Add(web);
+                _ = InitPdfWebViewAsync(web, file, host, resources);
+                return host;
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.LogError($"WebView2 PDF host failed: {ex}");
+            }
+        }
+
+        _ = RenderPdfBitmapsAsync(host, file, resources);
+        return host;
+    }
+
+    private async System.Threading.Tasks.Task InitPdfWebViewAsync(
+        Microsoft.UI.Xaml.Controls.WebView2 web, SelectableFile file, Grid host, ResourceDictionary resources)
+    {
+        try
+        {
+            await web.EnsureCoreWebView2Async();
+            web.CoreWebView2.Navigate(new Uri(file.Path).AbsoluteUri); // file:// -> Edge PDF viewer
+        }
+        catch (Exception ex)
+        {
+            App.Logger?.LogError($"WebView2 PDF nav failed: {ex}");
+            host.Children.Clear();
+            await RenderPdfBitmapsAsync(host, file, resources);
+        }
+    }
+
+    private async System.Threading.Tasks.Task RenderPdfBitmapsAsync(Grid host, SelectableFile file, ResourceDictionary resources)
+    {
+        try
+        {
+            var storageFile = await Windows.Storage.StorageFile.GetFileFromPathAsync(file.Path);
+            var pdf = await Windows.Data.Pdf.PdfDocument.LoadFromFileAsync(storageFile);
+            var stack = new StackPanel { Spacing = 8 };
+            for (uint i = 0; i < pdf.PageCount; i++)
+            {
+                using var page = pdf.GetPage(i);
+                var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+                await page.RenderToStreamAsync(stream);
+                stream.Seek(0);
+                var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                await bmp.SetSourceAsync(stream);
+                stack.Children.Add(new Image
+                {
+                    Source = bmp,
+                    Stretch = Stretch.Uniform,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                });
+            }
+            host.Children.Clear();
+            host.Children.Add(new ScrollViewer
+            {
+                Content = stack,
+                Padding = new Thickness(8),
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            });
+        }
+        catch (Exception ex)
+        {
+            App.Logger?.LogError($"Windows.Data.Pdf render failed: {ex}");
+            host.Children.Clear();
+            host.Children.Add(BuildNoPreview(file, resources));
+        }
+    }
+
+    // Close any WebView2 (PDF) instances before the panels are torn down/rebuilt,
+    // so their browser processes don't linger. Called from DisposeControllers,
+    // which both ShowGroup and Close_Click invoke before clearing the grid.
+    private void CloseWebViews()
+    {
+        foreach (var web in FindDescendants<Microsoft.UI.Xaml.Controls.WebView2>(PanelsGrid))
+        {
+            try { web.Close(); } catch { /* best-effort teardown */ }
+        }
+    }
+
+    private static IEnumerable<T> FindDescendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        var count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
+            {
+                yield return match;
+            }
+            foreach (var descendant in FindDescendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
     }
 
     private static FrameworkElement BuildFooter(SelectableFile file, ResourceDictionary resources)
