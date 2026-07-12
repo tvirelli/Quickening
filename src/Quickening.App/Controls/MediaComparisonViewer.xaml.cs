@@ -181,22 +181,42 @@ public sealed partial class MediaComparisonViewer : UserControl
                 break;
             }
             case FileViewerKind.Image:
-                mediaHost.Child = new Image
+            {
+                var image = new Image
                 {
                     // Uniform + Stretch fits the whole image inside the host,
-                    // centered and letterboxed - never cropped. SVG is a vector
-                    // format BitmapImage can't decode, so it gets an
-                    // SvgImageSource (which rasterises the vector) instead.
-                    Source = ImageSourceFor(file.Path),
+                    // centered and letterboxed - never cropped.
                     Stretch = Stretch.Uniform,
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     VerticalAlignment = VerticalAlignment.Stretch,
                 };
-                // A transparent or dark image vanishes against the near-black
-                // media host; pick a backing that contrasts with the image's own
-                // luminance so it stays visible (also fixes transparent PNG/WebP).
+                if (System.IO.Path.GetExtension(file.Path).Equals(".svg", StringComparison.OrdinalIgnoreCase))
+                {
+                    // SVG is vector - BitmapImage can't decode it. An SvgImageSource
+                    // whose source is set via UriSource silently renders nothing when
+                    // the SVG declares only a viewBox (no width/height), so force a
+                    // concrete raster size and load from a stream, logging failures.
+                    var svg = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource
+                    {
+                        RasterizePixelWidth = 512,
+                        RasterizePixelHeight = 512,
+                    };
+                    svg.OpenFailed += (_, e) => App.Logger?.LogError($"SVG open failed ({e.Status}) for '{file.Path}'");
+                    image.Source = svg;
+                    _ = LoadSvgAsync(svg, file.Path);
+                }
+                else
+                {
+                    image.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(file.Path));
+                }
+
+                mediaHost.Child = image;
+                // A transparent or dark image vanishes against the near-black media
+                // host; pick a backing that contrasts with the image's own luminance
+                // so it stays visible (also fixes transparent PNG/WebP).
                 ApplyAdaptiveImageBackground(mediaHost, file.Path);
                 break;
+            }
             case FileViewerKind.Markdown:
                 mediaHost.Child = BuildTextScroller(MarkdownLiteRenderer.Render(resources, ReadTextLines(file.Path)));
                 break;
@@ -219,14 +239,27 @@ public sealed partial class MediaComparisonViewer : UserControl
         return border;
     }
 
-    // Raster formats decode through BitmapImage/WIC; SVG is vector and needs
-    // SvgImageSource, which rasterises it at display size.
-    private static Microsoft.UI.Xaml.Media.ImageSource ImageSourceFor(string path)
+    // Loads an SVG from its file stream into an already-attached SvgImageSource.
+    // Stream loading (vs UriSource) avoids the file:// quirks that left SVGs blank,
+    // and the load status is logged so an unsupported SVG is diagnosable rather
+    // than a silent empty tile.
+    private static async System.Threading.Tasks.Task LoadSvgAsync(
+        Microsoft.UI.Xaml.Media.Imaging.SvgImageSource svg, string path)
     {
-        var uri = new Uri(path);
-        return System.IO.Path.GetExtension(path).Equals(".svg", StringComparison.OrdinalIgnoreCase)
-            ? new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(uri)
-            : new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(uri);
+        try
+        {
+            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
+            using var stream = await file.OpenReadAsync();
+            var result = await svg.SetSourceAsync(stream);
+            if (result != Microsoft.UI.Xaml.Media.Imaging.SvgImageSourceLoadStatus.Success)
+            {
+                App.Logger?.LogError($"SVG load status {result} for '{path}'");
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Logger?.LogError($"SVG load failed for '{path}': {ex}");
+        }
     }
 
     // Two backings the adaptive image logic chooses between: a light one behind
@@ -720,6 +753,11 @@ public sealed partial class MediaComparisonViewer : UserControl
         private readonly string _path;
         private readonly MediaPlayerElement? _videoElement;                              // null for audio
         private readonly Microsoft.UI.Xaml.Media.Animation.Storyboard? _eqStoryboard;    // audio bars, null for video
+        private readonly Grid? _audioContainer;                                          // audio tile root (EQ, then waveform)
+        private readonly List<Border> _waveformBars = new();                             // real per-column amplitude bars
+        private Brush? _wavePlayed;
+        private Brush? _waveRemaining;
+        private bool _waveformReady;
         private readonly Button _playPause;
         private readonly Slider _seek;
         private readonly TextBlock _timeText;
@@ -751,10 +789,13 @@ public sealed partial class MediaComparisonViewer : UserControl
             if (isAudio)
             {
                 // Audio has no video surface - the MediaPlayer plays sound on its
-                // own. Show a distinct audio look: a note glyph over equalizer
-                // bars that pulse while playing (paused when not).
+                // own. Start with a note glyph + pulsing equalizer bars, then
+                // replace them with a real waveform of the actual samples once the
+                // file has been decoded (see LoadWaveformAsync).
                 _eqStoryboard = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
-                Element = BuildAudioVisualizer(resources, _eqStoryboard);
+                _audioContainer = BuildAudioVisualizer(resources, _eqStoryboard);
+                Element = _audioContainer;
+                _ = LoadWaveformAsync();
             }
             else
             {
@@ -909,6 +950,7 @@ public sealed partial class MediaComparisonViewer : UserControl
                 }
 
                 UpdateTimeText(position);
+                UpdateWaveformProgress(position);
             });
         }
 
@@ -920,8 +962,9 @@ public sealed partial class MediaComparisonViewer : UserControl
                 _playPause.Content = isPlaying ? PauseGlyph : PlayGlyph;
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_playPause, isPlaying ? "Pause" : "Play");
 
-                // Pulse the equalizer bars only while sound is actually playing.
-                if (_eqStoryboard is not null)
+                // Pulse the placeholder equalizer bars only while sound is playing
+                // and only until the real waveform has replaced them.
+                if (_eqStoryboard is not null && !_waveformReady)
                 {
                     if (isPlaying)
                     {
@@ -992,19 +1035,19 @@ public sealed partial class MediaComparisonViewer : UserControl
         // scales vertically on its own loop (varied durations -> lively), all
         // added to the shared storyboard the controller starts on play / pauses
         // on stop. Built once per audio tile.
-        private static FrameworkElement BuildAudioVisualizer(
+        private static Grid BuildAudioVisualizer(
             ResourceDictionary resources, Microsoft.UI.Xaml.Media.Animation.Storyboard storyboard)
         {
             var accent = (Brush)resources["AccentBrush"];
 
-            var container = new StackPanel
+            var eq = new StackPanel
             {
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 Spacing = 18,
             };
 
-            container.Children.Add(new TextBlock
+            eq.Children.Add(new TextBlock
             {
                 Text = "♫", // ♫
                 FontSize = 40,
@@ -1049,17 +1092,124 @@ public sealed partial class MediaComparisonViewer : UserControl
                 storyboard.Children.Add(animation);
             }
 
-            container.Children.Add(bars);
+            eq.Children.Add(bars);
 
             // Start (so the animation clock is live) then immediately pause, so the
             // bars hold still until playback resumes them.
-            container.Loaded += (_, _) =>
+            eq.Loaded += (_, _) =>
             {
                 storyboard.Begin();
                 storyboard.Pause();
             };
 
+            // Wrapped in a Grid so LoadWaveformAsync can swap the placeholder EQ
+            // out for the real waveform once decoding finishes.
+            var container = new Grid();
+            container.Children.Add(eq);
             return container;
+        }
+
+        // Decodes the audio to 16-bit PCM (via MediaTranscoder to an in-memory WAV),
+        // reduces it to per-column peak amplitudes, and draws a real waveform in
+        // place of the placeholder equalizer. Best-effort: very long files, non-
+        // transcodable codecs, or any error just leave the pulsing EQ in place.
+        private async System.Threading.Tasks.Task LoadWaveformAsync()
+        {
+            try
+            {
+                var source = await Windows.Storage.StorageFile.GetFileFromPathAsync(_path);
+                var music = await source.Properties.GetMusicPropertiesAsync();
+                if (music.Duration > TimeSpan.FromMinutes(20))
+                {
+                    return; // decoding a very long track to PCM in memory isn't worth it
+                }
+
+                var transcoder = new Windows.Media.Transcoding.MediaTranscoder();
+                var profile = Windows.Media.MediaProperties.MediaEncodingProfile.CreateWav(
+                    Windows.Media.MediaProperties.AudioEncodingQuality.Low);
+                using var srcStream = await source.OpenReadAsync();
+                using var dest = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+
+                var prep = await transcoder.PrepareStreamTranscodeAsync(srcStream, dest, profile);
+                if (!prep.CanTranscode)
+                {
+                    return;
+                }
+                await prep.TranscodeAsync();
+
+                dest.Seek(0);
+                var bytes = new byte[dest.Size];
+                using (var reader = new Windows.Storage.Streams.DataReader(dest))
+                {
+                    await reader.LoadAsync((uint)dest.Size);
+                    reader.ReadBytes(bytes);
+                }
+
+                var peaks = Quickening.Core.Audio.WaveformSampler.ComputePeaks(bytes, 160);
+                if (peaks.Length > 0 && _audioContainer is not null)
+                {
+                    BuildWaveform(peaks);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.LogError($"Waveform build failed for '{_path}': {ex}");
+            }
+        }
+
+        private void BuildWaveform(float[] peaks)
+        {
+            _wavePlayed = (Brush)_resources["AccentBrush"];
+            _waveRemaining = new SolidColorBrush(Windows.UI.Color.FromArgb(0x59, 0xFF, 0xFF, 0xFF));
+
+            var bars = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Height = 96,
+                Spacing = 2,
+            };
+
+            const double maxBarHeight = 88;
+            _waveformBars.Clear();
+            foreach (var peak in peaks)
+            {
+                var bar = new Border
+                {
+                    Width = 3,
+                    Height = Math.Max(2, peak * maxBarHeight),
+                    CornerRadius = new CornerRadius(1.5),
+                    Background = _waveRemaining,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                _waveformBars.Add(bar);
+                bars.Children.Add(bar);
+            }
+
+            _eqStoryboard?.Stop();
+            _waveformReady = true;
+            _audioContainer!.Children.Clear();
+            _audioContainer.Children.Add(bars);
+            UpdateWaveformProgress(_session.Position);
+        }
+
+        // Colours the bars up to the current playback position with the accent, the
+        // rest faint - the "played so far" fill of a waveform scrubber.
+        private void UpdateWaveformProgress(TimeSpan position)
+        {
+            if (_waveformBars.Count == 0 || _wavePlayed is null || _waveRemaining is null)
+            {
+                return;
+            }
+
+            var total = _duration.TotalSeconds;
+            var ratio = total > 0 ? Math.Clamp(position.TotalSeconds / total, 0, 1) : 0;
+            var playedCount = (int)(ratio * _waveformBars.Count);
+            for (var i = 0; i < _waveformBars.Count; i++)
+            {
+                _waveformBars[i].Background = i < playedCount ? _wavePlayed : _waveRemaining;
+            }
         }
 
         private FrameworkElement BuildUnsupportedFallback()
