@@ -148,42 +148,172 @@ public sealed partial class MediaComparisonViewer : UserControl
         Grid.SetRow(mediaHost, 0);
         grid.Children.Add(mediaHost);
 
-        if (file.Category is MimeCategory.Video or MimeCategory.Audio)
+        switch (FileViewerRouter.ForPath(file.Path, file.Category))
         {
-            var controller = new MediaController(file, mediaHost, DispatcherQueue, resources);
-            _controllers.Add(controller);
-
-            mediaHost.Child = controller.Element;
-
-            Grid.SetRow(controller.Controls, 1);
-            grid.Children.Add(controller.Controls);
-        }
-        else if (file.Category == MimeCategory.Image)
-        {
-            mediaHost.Child = new Image
+            case FileViewerKind.Video:
+            case FileViewerKind.Audio:
             {
-                Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(file.Path)),
-                // Uniform + Stretch alignment fits the whole image inside the
-                // host, centered and letterboxed - never cropped, however wide
-                // or tall it is.
-                Stretch = Stretch.Uniform,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                VerticalAlignment = VerticalAlignment.Stretch,
-            };
-        }
-        else
-        {
-            mediaHost.Child = new TextBlock
-            {
-                Text = "No preview available",
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-                Foreground = (Brush)resources["TextMutedBrush"],
-            };
+                var controller = new MediaController(file, mediaHost, DispatcherQueue, resources);
+                _controllers.Add(controller);
+                mediaHost.Child = controller.Element;
+                Grid.SetRow(controller.Controls, 1);
+                grid.Children.Add(controller.Controls);
+                break;
+            }
+            case FileViewerKind.Image:
+                mediaHost.Child = new Image
+                {
+                    // Uniform + Stretch fits the whole image inside the host,
+                    // centered and letterboxed - never cropped.
+                    Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(file.Path)),
+                    Stretch = Stretch.Uniform,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    VerticalAlignment = VerticalAlignment.Stretch,
+                };
+                break;
+            case FileViewerKind.Markdown:
+                mediaHost.Child = BuildTextScroller(MarkdownLiteRenderer.Render(resources, ReadTextLines(file.Path)));
+                break;
+            case FileViewerKind.Code:
+            case FileViewerKind.PlainText:
+                mediaHost.Child = BuildTextScroller(BuildCodeOrText(file.Path, resources));
+                break;
+            case FileViewerKind.Pdf:
+                mediaHost.Child = BuildNoPreview(file, resources); // Task 7 upgrades this to a real PDF viewer
+                break;
+            default:
+                mediaHost.Child = BuildNoPreview(file, resources);
+                break;
         }
 
         grid.Children.Add(BuildFooter(file, resources));
         return border;
+    }
+
+    // Cap in-viewer text loads so a giant log can't hang the UI.
+    private const long MaxPreviewBytes = 2 * 1024 * 1024;
+
+    private static string[] ReadTextLines(string path)
+    {
+        try
+        {
+            if (new System.IO.FileInfo(path).Length > MaxPreviewBytes)
+            {
+                return new[] { "This file is too large to preview here — open it in your usual app." };
+            }
+            return System.IO.File.ReadAllLines(path);
+        }
+        catch (Exception ex)
+        {
+            App.Logger?.LogError($"Reading '{path}' for preview failed: {ex}");
+            return new[] { "Couldn't read this file to preview it." };
+        }
+    }
+
+    private static ScrollViewer BuildTextScroller(UIElement content) => new()
+    {
+        Padding = new Thickness(14),
+        HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        Content = content,
+    };
+
+    private static UIElement PlainMono(string text, ResourceDictionary resources) => new TextBlock
+    {
+        Text = text,
+        FontFamily = new FontFamily("Consolas"),
+        FontSize = 12.5,
+        Foreground = (Brush)resources["TextBodyBrush"],
+        TextWrapping = TextWrapping.NoWrap,
+        IsTextSelectionEnabled = true,
+    };
+
+    // Highlighted source via ColorCode (dark theme to match the app). Unknown
+    // languages / any failure fall through to plain, still-readable monospace.
+    private static UIElement BuildCodeOrText(string path, ResourceDictionary resources)
+    {
+        var text = string.Join("\n", ReadTextLines(path));
+        var language = ColorCodeLanguageFor(System.IO.Path.GetExtension(path));
+        if (language is null)
+        {
+            return PlainMono(text, resources);
+        }
+        try
+        {
+            var rtb = new RichTextBlock { IsTextSelectionEnabled = true };
+            new ColorCode.RichTextBlockFormatter(ElementTheme.Dark).FormatRichTextBlock(text, language, rtb);
+            return rtb;
+        }
+        catch (Exception ex)
+        {
+            App.Logger?.LogError($"Syntax highlighting failed for '{path}': {ex}");
+            return PlainMono(text, resources);
+        }
+    }
+
+    private static ColorCode.ILanguage? ColorCodeLanguageFor(string ext) => ext.ToLowerInvariant() switch
+    {
+        ".cs" => ColorCode.Languages.CSharp,
+        ".js" or ".jsx" or ".json" => ColorCode.Languages.JavaScript,
+        ".ts" or ".tsx" => ColorCode.Languages.Typescript,
+        ".html" or ".htm" => ColorCode.Languages.Html,
+        ".css" or ".less" or ".scss" => ColorCode.Languages.Css,
+        ".xml" or ".xaml" or ".svg" or ".csproj" => ColorCode.Languages.Xml,
+        ".sql" => ColorCode.Languages.Sql,
+        ".py" => ColorCode.Languages.Python,
+        ".php" => ColorCode.Languages.Php,
+        ".ps1" => ColorCode.Languages.PowerShell,
+        ".c" or ".cpp" or ".h" or ".hpp" => ColorCode.Languages.Cpp,
+        ".java" => ColorCode.Languages.Java,
+        ".fs" => ColorCode.Languages.FSharp,
+        ".vb" => ColorCode.Languages.VbDotNet,
+        _ => null,
+    };
+
+    // "No preview" tile with an Open-in-default-app escape hatch (mirrors the
+    // video-unsupported fallback). Also the current PDF placeholder until Task 7.
+    private FrameworkElement BuildNoPreview(SelectableFile file, ResourceDictionary resources)
+    {
+        var panel = new StackPanel
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Spacing = 10,
+            Padding = new Thickness(24),
+        };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "No preview for this file type",
+            FontFamily = (FontFamily)resources["DisplayFontFamily"],
+            FontSize = 15,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            Foreground = (Brush)resources["TextSecondaryBrush"],
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+        });
+        var open = new Button
+        {
+            Content = "Open in default app",
+            Padding = new Thickness(16, 8, 16, 8),
+            CornerRadius = new CornerRadius(10),
+            Background = (Brush)resources["AccentBrush"],
+            Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
+            BorderThickness = new Thickness(0),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        };
+        open.Click += (_, _) =>
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(file.Path) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.LogError($"Open failed: {ex}");
+            }
+        };
+        panel.Children.Add(open);
+        return panel;
     }
 
     private static FrameworkElement BuildFooter(SelectableFile file, ResourceDictionary resources)
