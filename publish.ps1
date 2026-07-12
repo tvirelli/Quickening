@@ -59,9 +59,10 @@ vpk upload github `
 
 # --- Upload Setup.exe to the self-hosted download endpoint -----------------
 if (-not $NoServerUpload) {
-    $setup = Join-Path $releasesDir 'Quickening-win-x64-Setup.exe'
+    $setup = Join-Path $releasesDir 'Quickening-win-Setup.exe'
     if (-not (Test-Path $setup)) {
-        # Velopack names the installer <PackId>-<rid>-Setup.exe; fall back to any *Setup.exe.
+        # Velopack names the installer <PackId>-<channel>-Setup.exe (channel is
+        # "win" for a default win-x64 pack); fall back to any *Setup.exe.
         $setup = (Get-ChildItem $releasesDir -Filter '*Setup.exe' | Select-Object -First 1).FullName
     }
     if (-not $setup) { throw "No Setup.exe found in $releasesDir." }
