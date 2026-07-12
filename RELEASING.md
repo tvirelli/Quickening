@@ -24,6 +24,18 @@ This builds a self-contained win-x64 release, packs it, creates the GitHub
 Release `v1.0.1`, and uploads the installer to `quickening.app/download`.
 Use `-NoServerUpload` to skip the website upload.
 
+## Changelogs (required every release)
+
+Every release ships notes so users know what changed.
+
+1. Write `changelog/<version>.md` — short, user-facing markdown. `publish.ps1`
+   refuses to release without it. This file becomes the **GitHub release body**
+   and travels in the update feed (`vpk pack --releaseNotes`).
+2. Add the matching entry to the top of `CHANGELOG.md` (Keep a Changelog style).
+3. **Major releases only** (new headline feature, e.g. 1.x → 2.0, or a big 1.N
+   feature drop): also write a **blog post** on quickening.app announcing it.
+   Patch/bugfix releases (like 1.0.1, 1.0.2) get release notes only — no blog post.
+
 ## Verify auto-update (do this once end-to-end)
 
 1. `.\publish.ps1 1.0.0`, then run the resulting `artifacts\releases\*Setup.exe`

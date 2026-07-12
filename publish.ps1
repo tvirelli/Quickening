@@ -30,6 +30,14 @@ if (-not $env:GITHUB_TOKEN) {
     throw "GITHUB_TOKEN env var is not set (needs 'repo' scope for vpk upload)."
 }
 
+# Every release ships notes. The file becomes the GitHub release body and rides
+# in the update feed. Also remember to add the same entry to CHANGELOG.md, and
+# for a MAJOR release, write a blog post (see RELEASING.md).
+$notesFile = Join-Path $repo "changelog\$Version.md"
+if (-not (Test-Path $notesFile)) {
+    throw "No release notes at changelog\$Version.md. Create it (and add a CHANGELOG.md entry) before releasing."
+}
+
 # --- Build ----------------------------------------------------------------
 Write-Host "==> Publishing win-x64 self-contained build ($Version)..." -ForegroundColor Cyan
 if (Test-Path $publishDir) { Remove-Item $publishDir -Recurse -Force }
@@ -47,6 +55,7 @@ vpk pack `
     --mainExe Quickening.exe `
     --packTitle Quickening `
     --icon (Join-Path $repo 'src\Quickening.App\Assets\AppIcon.ico') `
+    --releaseNotes $notesFile `
     --outputDir $releasesDir
 
 # --- Upload to GitHub Releases --------------------------------------------
