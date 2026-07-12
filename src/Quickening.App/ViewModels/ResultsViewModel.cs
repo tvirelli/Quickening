@@ -132,33 +132,73 @@ public sealed class SelectableFile : INotifyPropertyChanged
     // keeps the decode cheap (a small thumbnail, not the full-resolution
     // original) regardless of how large the source file is.
     private BitmapImage? _thumbnailSource;
+    private bool _videoThumbReady;
+
+    public bool IsVideo => Category == MimeCategory.Video;
+
+    // The row shows a thumbnail image (vs the category icon) for images always,
+    // and for videos once their poster frame has loaded (LoadVideoThumbnailAsync).
+    public bool HasThumbnail => IsImage || (IsVideo && _videoThumbReady);
+
     public BitmapImage? ThumbnailSource
     {
         get
         {
-            if (!IsImage)
+            if (IsImage)
             {
-                return null;
+                if (_thumbnailSource is null)
+                {
+                    try
+                    {
+                        _thumbnailSource = new BitmapImage { DecodePixelWidth = 64 };
+                        _thumbnailSource.UriSource = new Uri(Path);
+                    }
+                    catch (Exception ex) when (ex is UriFormatException or IOException or UnauthorizedAccessException)
+                    {
+                        // A file can vanish/become inaccessible between the scan
+                        // that found it and the user scrolling this row into view -
+                        // fall back to null (the FontIcon fallback in ResultsPage.xaml
+                        // takes over) rather than throwing out of a property getter.
+                        return null;
+                    }
+                }
+
+                return _thumbnailSource;
             }
 
-            if (_thumbnailSource is null)
+            return IsVideo && _videoThumbReady ? _thumbnailSource : null;
+        }
+    }
+
+    // Loads a poster frame for a video row (Windows generates it - no decoding on
+    // our side). Best-effort, fire-and-forget from the row's Loaded handler; on
+    // success the icon is swapped for the poster via PropertyChanged.
+    public async System.Threading.Tasks.Task LoadVideoThumbnailAsync()
+    {
+        if (!IsVideo || _videoThumbReady)
+        {
+            return;
+        }
+
+        try
+        {
+            var storageFile = await Windows.Storage.StorageFile.GetFileFromPathAsync(Path);
+            using var thumb = await storageFile.GetThumbnailAsync(Windows.Storage.FileProperties.ThumbnailMode.VideosView, 64);
+            if (thumb is null || thumb.Size == 0)
             {
-                try
-                {
-                    _thumbnailSource = new BitmapImage { DecodePixelWidth = 64 };
-                    _thumbnailSource.UriSource = new Uri(Path);
-                }
-                catch (Exception ex) when (ex is UriFormatException or IOException or UnauthorizedAccessException)
-                {
-                    // A file can vanish/become inaccessible between the scan
-                    // that found it and the user scrolling this row into view -
-                    // fall back to null (the FontIcon fallback in ResultsPage.xaml
-                    // takes over) rather than throwing out of a property getter.
-                    return null;
-                }
+                return;
             }
 
-            return _thumbnailSource;
+            var bmp = new BitmapImage { DecodePixelWidth = 64 };
+            await bmp.SetSourceAsync(thumb);
+            _thumbnailSource = bmp;
+            _videoThumbReady = true;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasThumbnail)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ThumbnailSource)));
+        }
+        catch (Exception ex)
+        {
+            App.Logger?.LogError($"Video thumbnail load failed for '{Path}': {ex}");
         }
     }
 }

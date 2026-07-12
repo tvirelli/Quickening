@@ -239,14 +239,14 @@
                         <Border Grid.Column="1" Width="44" Height="44"
                                 CornerRadius="{StaticResource RadiusThumbnail}"
                                 Background="{Binding Category, Converter={StaticResource CategoryFillBrushConverter}}"
-                                Tapped="FileThumbnail_Tapped">
+                                Tapped="FileThumbnail_Tapped" Loaded="FileThumbnail_Loaded">
                             <Grid>
                                 <ContentControl Content="{Binding Category}"
                                     ContentTemplate="{Binding Category, Converter={StaticResource CategoryIconTemplateConverter}}"
-                                    Visibility="{Binding IsImage, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                    Visibility="{Binding HasThumbnail, Converter={StaticResource InverseBoolToVisibilityConverter}}"
                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
                                 <Image Source="{Binding ThumbnailSource}" Stretch="UniformToFill"
-                                       Visibility="{Binding IsImage, Converter={StaticResource BoolToVisibilityConverter}}"
+                                       Visibility="{Binding HasThumbnail, Converter={StaticResource BoolToVisibilityConverter}}"
                                        ImageFailed="FileThumbnail_ImageFailed" />
                             </Grid>
                         </Border>

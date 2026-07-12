@@ -787,6 +787,17 @@ public sealed partial class ResultsPage : Page
     private void FileSelectionChanged(object sender, RoutedEventArgs e) => RefreshSelectedSizeStat();
 
     // Bound to each file row's thumbnail/icon Border's Tapped event in
+    // Kicks off the lazy video poster-frame load when a row realizes (video rows
+    // only - LoadVideoThumbnailAsync no-ops otherwise). Fire-and-forget: it
+    // handles its own errors and swaps the icon for the poster via PropertyChanged.
+    private void FileThumbnail_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: SelectableFile file })
+        {
+            _ = file.LoadVideoThumbnailAsync();
+        }
+    }
+
     // ResultsPage.xaml. Opens the side-by-side comparison viewer over every
     // file in the tapped file's duplicate group - for any file the compare
     // viewer can preview (media, code/markdown/text, PDF). Tapping a row whose
