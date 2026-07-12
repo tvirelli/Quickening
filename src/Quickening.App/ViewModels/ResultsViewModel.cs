@@ -424,6 +424,19 @@ public sealed class ResultsViewModel
             .ToList();
 
     /// <summary>
+    /// Selected files that belong to a "created together" duplicate group (all
+    /// copies share one creation second - likely an app/installer set). Drives
+    /// the extra confirmation before removal, mirroring the risky-file gate. A
+    /// group-level property, so this iterates Groups rather than flat files.
+    /// </summary>
+    public IReadOnlyList<string> GetSelectedCreatedTogetherPaths() =>
+        Groups.Where(g => g.IsLikelyCreatedTogether)
+            .SelectMany(g => g.Files)
+            .Where(f => f.IsSelected)
+            .Select(f => f.Path)
+            .ToList();
+
+    /// <summary>
     /// Sums SizeBytes across every currently-selected file (Duplicates and
     /// Looks-alike photos both), for the bottom-bar "X selected" stat in
     /// ResultsPage.

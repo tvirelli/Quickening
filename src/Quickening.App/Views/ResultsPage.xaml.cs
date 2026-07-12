@@ -885,6 +885,13 @@ public sealed partial class ResultsPage : Page
             .Where(f => riskySet.Contains(f.Path))
             .Select(f => (f.Path, f.SizeBytes))
             .ToList();
+
+        var createdTogetherSet = new HashSet<string>(_viewModel.GetSelectedCreatedTogetherPaths());
+        var createdTogetherFiles = _viewModel.Groups.SelectMany(g => g.Files)
+            .Where(f => createdTogetherSet.Contains(f.Path))
+            .Select(f => (f.Path, f.SizeBytes))
+            .ToList();
+
         var totalSizeBytes = _viewModel.GetSelectedSizeBytes();
 
         // Captured before DeleteSelectedAsync runs (it removes files from
@@ -904,7 +911,7 @@ public sealed partial class ResultsPage : Page
             CloseButtonStyle = (Style)Application.Current.Resources["PillSecondaryButtonStyle"],
             XamlRoot = XamlRoot,
         };
-        confirmDialog.Content = BuildRemoveConfirmationContent(selectedCount, totalSizeBytes, riskyFiles, confirmDialog);
+        confirmDialog.Content = BuildRemoveConfirmationContent(selectedCount, totalSizeBytes, riskyFiles, confirmDialog, createdTogetherFiles);
 
         var choice = await confirmDialog.ShowAsync();
         if (choice != ContentDialogResult.Primary)
@@ -1001,7 +1008,8 @@ public sealed partial class ResultsPage : Page
     // reuse this exact dialog body rather than duplicating it - nothing
     // here is specific to the grouped ResultsViewModel.
     internal static UIElement BuildRemoveConfirmationContent(
-        int selectedCount, long totalSizeBytes, IReadOnlyList<(string Path, long SizeBytes)> riskyFiles, ContentDialog dialog)
+        int selectedCount, long totalSizeBytes, IReadOnlyList<(string Path, long SizeBytes)> riskyFiles,
+        ContentDialog dialog, IReadOnlyList<(string Path, long SizeBytes)>? createdTogetherFiles = null)
     {
         var resources = Application.Current.Resources;
         var panel = new StackPanel { Spacing = 0 };
@@ -1036,7 +1044,9 @@ public sealed partial class ResultsPage : Page
         });
         panel.Children.Add(bodyText);
 
-        if (riskyFiles.Count == 0)
+        var createdTogether = createdTogetherFiles ?? System.Array.Empty<(string Path, long SizeBytes)>();
+
+        if (riskyFiles.Count == 0 && createdTogether.Count == 0)
         {
             dialog.IsPrimaryButtonEnabled = true;
             return panel;
@@ -1053,6 +1063,8 @@ public sealed partial class ResultsPage : Page
         };
         var riskyStack = new StackPanel { Spacing = 12 };
 
+        if (riskyFiles.Count > 0)
+        {
         riskyStack.Children.Add(new TextBlock
         {
             Text = $"⚠ {riskyFiles.Count} of these look like program files",
@@ -1105,6 +1117,62 @@ public sealed partial class ResultsPage : Page
             MaxHeight = 140,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         });
+        }
+
+        if (createdTogether.Count > 0)
+        {
+            var ctTextBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0xE8, 0xC9, 0xB8));
+            riskyStack.Children.Add(new TextBlock
+            {
+                Text = $"⚠ {createdTogether.Count} were created together — may belong to an app or set",
+                FontSize = 14,
+                FontWeight = FontWeights.ExtraBold,
+                Foreground = (Brush)resources["WarningBrush"],
+            });
+            riskyStack.Children.Add(new TextBlock
+            {
+                Text = "Files written at the same moment are often part of one program's install — removing part of a set can break it.",
+                FontSize = 12.5,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = ctTextBrush,
+            });
+
+            var ctListPanel = new StackPanel { Spacing = 8 };
+            foreach (var (path, sizeBytes) in createdTogether)
+            {
+                var row = new Grid();
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var nameText = new TextBlock
+                {
+                    Text = System.IO.Path.GetFileName(path),
+                    FontFamily = (FontFamily)resources["MonoFontFamily"],
+                    FontSize = 12.5,
+                    Foreground = ctTextBrush,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                };
+                var sizeText = new TextBlock
+                {
+                    Text = FileSizeFormatter.Format(sizeBytes),
+                    FontFamily = (FontFamily)resources["MonoFontFamily"],
+                    FontSize = 12.5,
+                    Foreground = ctTextBrush,
+                    Margin = new Thickness(12, 0, 0, 0),
+                };
+                Grid.SetColumn(nameText, 0);
+                Grid.SetColumn(sizeText, 1);
+                row.Children.Add(nameText);
+                row.Children.Add(sizeText);
+                ctListPanel.Children.Add(row);
+            }
+
+            riskyStack.Children.Add(new ScrollViewer
+            {
+                Content = ctListPanel,
+                MaxHeight = 120,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            });
+        }
 
         var enableHint = new TextBlock
         {
@@ -1115,12 +1183,19 @@ public sealed partial class ResultsPage : Page
             Margin = new Thickness(0, 12, 0, 0),
         };
 
+        var ackText = (riskyFiles.Count > 0, createdTogether.Count > 0) switch
+        {
+            (true, true) => "I understand some of these are program files or created-together sets, and I still want to remove them.",
+            (false, true) => "I understand these were created together and may belong to an app, and I still want to remove them.",
+            _ => "I understand these may be programs or installers, and I still want to remove them.",
+        };
+
         var acknowledgeCheckBox = new CheckBox
         {
             Margin = new Thickness(0, 4, 0, 0),
             Content = new TextBlock
             {
-                Text = "I understand these may be programs or installers, and I still want to remove them.",
+                Text = ackText,
                 TextWrapping = TextWrapping.Wrap,
                 FontSize = 13,
                 Foreground = new SolidColorBrush(Color.FromArgb(0xFF, 0xD8, 0xC0, 0xB2)),
