@@ -47,6 +47,17 @@
     <Content Include="Assets\StoreLogo.png" />
     <Content Include="Assets\AppIcon.ico" />
     <Content Include="Assets\Wide310x150Logo.scale-200.png" />
+    <!--
+      Copy every app Asset (icons, branding logo, fonts) next to the exe on
+      PUBLISH, not just on build. These are WinUI Content items, but an
+      unpackaged `dotnet publish` skips Content that has no
+      CopyToOutputDirectory - which shipped an installed app with no window/
+      taskbar icon, no title-bar logo, and system-fallback fonts. `Update`
+      (not `Include`) only adds the metadata to the already-included items
+      (including the WinUI-default Branding/ and Fonts/ ones), so nothing is
+      double-included.
+    -->
+    <Content Update="Assets\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

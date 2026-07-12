@@ -46,6 +46,7 @@ vpk pack `
     --packDir $publishDir `
     --mainExe Quickening.exe `
     --packTitle Quickening `
+    --icon (Join-Path $repo 'src\Quickening.App\Assets\AppIcon.ico') `
     --outputDir $releasesDir
 
 # --- Upload to GitHub Releases --------------------------------------------
