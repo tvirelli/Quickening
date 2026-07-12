@@ -109,6 +109,14 @@ public sealed class AppSettings
     public string? LastScannedFolderPath { get; set; }
 
     /// <summary>
+    /// The app version this install last launched as - persisted so the first
+    /// launch after a Velopack update can show a one-time "Updated to vX" note
+    /// (Updates.UpdateNotice.Evaluate). Null on a fresh install, which shows
+    /// no note.
+    /// </summary>
+    public string? LastSeenVersion { get; set; }
+
+    /// <summary>
     /// Privacy group. Off by default. There is no telemetry backend/server
     /// anywhere in this project - enabling this only turns on local
     /// instrumentation (counts of scans run, space freed; never paths or
