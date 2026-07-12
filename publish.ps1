@@ -55,6 +55,7 @@ vpk upload github `
     --publish `
     --releaseName "Quickening $Version" `
     --tag "v$Version" `
+    --token $env:GITHUB_TOKEN `
     --outputDir $releasesDir
 
 # --- Upload Setup.exe to the self-hosted download endpoint -----------------
