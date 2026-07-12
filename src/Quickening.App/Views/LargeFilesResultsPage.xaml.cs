@@ -416,14 +416,14 @@ public sealed partial class LargeFilesResultsPage : Page
         SelectedCalloutText.Text = callout;
     }
 
-    // Kicks off the lazy video poster frame and shell file-type icon loads for a
-    // realized row (each no-ops when it doesn't apply), mirroring ResultsPage.
+    // Kicks off the lazy video poster frame for a realized row; the shell type
+    // icon loads itself on first bind (SelectableFile.FileTypeIconSource) so it
+    // survives container recycling in the virtualized list.
     private void FileThumbnail_Loaded(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { DataContext: SelectableFile file })
         {
             _ = file.LoadVideoThumbnailAsync();
-            file.LoadFileTypeIcon();
         }
     }
 

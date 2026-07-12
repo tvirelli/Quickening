@@ -209,41 +209,35 @@ public sealed class SelectableFile : INotifyPropertyChanged
     }
 
     // Real Windows shell icon for non-media rows (what Explorer shows for the
-    // type). Lazily loaded from the row's Loaded handler; on success it replaces
-    // the generic category glyph. Media rows skip it - they show a content
-    // thumbnail instead.
+    // type). Media rows skip it - they show a content thumbnail instead.
     private Microsoft.UI.Xaml.Media.ImageSource? _fileTypeIcon;
     private bool _fileTypeIconRequested;
 
-    public Microsoft.UI.Xaml.Media.ImageSource? FileTypeIconSource => _fileTypeIcon;
+    // Resolved lazily on first bind, NOT from the row's Loaded event: a
+    // virtualized list recycles its containers without re-firing Loaded, so
+    // rows scrolled into a recycled container never got their icon. The getter
+    // is safe to call on every (re)bind - the provider caches per extension and
+    // the result is memoised here per file, so the GDI extraction runs at most
+    // once per distinct type.
+    public Microsoft.UI.Xaml.Media.ImageSource? FileTypeIconSource
+    {
+        get
+        {
+            if (_fileTypeIcon is null && !_fileTypeIconRequested && !HasThumbnail)
+            {
+                _fileTypeIconRequested = true;
+                _fileTypeIcon = Services.ShellIconProvider.GetIconSource(Path);
+            }
+
+            return _fileTypeIcon;
+        }
+    }
 
     // The icon Border layers three mutually exclusive states: a content
-    // thumbnail (images/videos), else the real shell type icon once loaded, else
-    // the generic category glyph as the always-available fallback.
-    public bool ShowFileTypeIcon => !HasThumbnail && _fileTypeIcon is not null;
-    public bool ShowCategoryGlyph => !HasThumbnail && _fileTypeIcon is null;
-
-    public void LoadFileTypeIcon()
-    {
-        if (_fileTypeIconRequested || HasThumbnail)
-        {
-            return;
-        }
-        _fileTypeIconRequested = true;
-
-        // Synchronous, per-extension cached, and fast (GDI icon extraction), so it
-        // runs inline on the UI thread from the row's Loaded handler.
-        var source = Services.ShellIconProvider.GetIconSource(Path);
-        if (source is null)
-        {
-            return;
-        }
-
-        _fileTypeIcon = source;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FileTypeIconSource)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowFileTypeIcon)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowCategoryGlyph)));
-    }
+    // thumbnail (images/videos), else the real shell type icon, else the generic
+    // category glyph as the always-available fallback.
+    public bool ShowFileTypeIcon => !HasThumbnail && FileTypeIconSource is not null;
+    public bool ShowCategoryGlyph => !HasThumbnail && FileTypeIconSource is null;
 }
 
 public sealed class DuplicateGroupViewModel : INotifyPropertyChanged

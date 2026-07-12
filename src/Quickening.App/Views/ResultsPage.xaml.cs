@@ -792,12 +792,12 @@ public sealed partial class ResultsPage : Page
     // handles its own errors and swaps the icon for the poster via PropertyChanged.
     private void FileThumbnail_Loaded(object sender, RoutedEventArgs e)
     {
+        // Videos lazily load a poster frame here; the shell type icon loads itself
+        // on first bind (see SelectableFile.FileTypeIconSource) so it survives
+        // container recycling in the virtualized list.
         if (sender is FrameworkElement { DataContext: SelectableFile file })
         {
-            // Videos lazily load a poster frame; non-media rows lazily load their
-            // real shell type icon. Each no-ops when it doesn't apply.
             _ = file.LoadVideoThumbnailAsync();
-            file.LoadFileTypeIcon();
         }
     }
 

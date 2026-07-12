@@ -1187,10 +1187,23 @@ public sealed partial class MediaComparisonViewer : UserControl
                 bars.Children.Add(bar);
             }
 
+            // The fixed-width bar strip is wider than a split tile; a Viewbox
+            // stretched to the tile width scales it down uniformly to fit (never
+            // upscaling on a wide single-file tile).
+            var viewbox = new Viewbox
+            {
+                Stretch = Stretch.Uniform,
+                StretchDirection = Microsoft.UI.Xaml.Controls.StretchDirection.DownOnly,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(12, 0, 12, 0),
+                Child = bars,
+            };
+
             _eqStoryboard?.Stop();
             _waveformReady = true;
             _audioContainer!.Children.Clear();
-            _audioContainer.Children.Add(bars);
+            _audioContainer.Children.Add(viewbox);
             UpdateWaveformProgress(_session.Position);
         }
 
