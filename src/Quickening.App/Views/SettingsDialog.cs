@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.Windows.Storage.Pickers;
 using Quickening.App.Settings;
+using Quickening.App.Updates;
 using Windows.UI;
 using WinRT.Interop;
 
@@ -577,15 +578,19 @@ internal static class SettingsDialog
 
     private static UIElement BuildAboutGroup(ResourceDictionary resources, ContentDialog dialog)
     {
-        var version = typeof(SettingsDialog).Assembly.GetName().Version;
+        var version = App.Updater?.CurrentVersion
+            ?? typeof(SettingsDialog).Assembly.GetName().Version?.ToString(3)
+            ?? "dev";
         var versionRow = new TextBlock
         {
-            Text = $"Quickening {version?.ToString(3) ?? "dev"} — © Tony Virelli. Use of this app is governed by the license agreement below.",
+            Text = $"Quickening {version} — © Tony Virelli. Use of this app is governed by the license agreement below.",
             FontFamily = (FontFamily)resources["BodyFontFamily"],
             FontSize = 12.5,
             Foreground = (Brush)resources["TextMutedBrush"],
             TextWrapping = TextWrapping.Wrap,
         };
+
+        var updateRow = BuildUpdateCheckRow(resources);
 
         // All three documents ship beside the exe and render in-app (a
         // scrollable view swapped into this same dialog), so they always
@@ -602,7 +607,75 @@ internal static class SettingsDialog
             "Open-source components and fonts Quickening is built with.",
             () => ShowDocument(resources, dialog, "Third-party notices", "THIRD-PARTY-NOTICES.md"));
 
-        return BuildGroupCard(resources, "About", versionRow, eulaRow, privacyRow, noticesRow);
+        return BuildGroupCard(resources, "About", versionRow, updateRow, eulaRow, privacyRow, noticesRow);
+    }
+
+    // "Check for updates" row: a label plus a button that runs a manual check
+    // through the same UpdateService the launch-time check uses. Status text
+    // reflects the result. Reuses the plain hover-row look via a Grid.
+    private static UIElement BuildUpdateCheckRow(ResourceDictionary resources)
+    {
+        var grid = new Grid { ColumnSpacing = 16 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var textStack = new StackPanel { Spacing = 3 };
+        textStack.Children.Add(new TextBlock
+        {
+            Text = "Updates",
+            FontFamily = (FontFamily)resources["BodyFontFamily"],
+            FontSize = 15,
+            FontWeight = FontWeights.Bold,
+            Foreground = (Brush)resources["TextBodyBrush"],
+        });
+        var status = new TextBlock
+        {
+            Text = "Quickening updates itself automatically.",
+            FontFamily = (FontFamily)resources["BodyFontFamily"],
+            FontSize = 12.5,
+            Foreground = (Brush)resources["TextMutedBrush"],
+            TextWrapping = TextWrapping.Wrap,
+        };
+        textStack.Children.Add(status);
+        Grid.SetColumn(textStack, 0);
+        grid.Children.Add(textStack);
+
+        var button = new Button
+        {
+            Content = "Check for updates",
+            Padding = new Thickness(14, 8, 14, 8),
+            FontFamily = (FontFamily)resources["DisplayFontFamily"],
+            FontSize = 13,
+            Background = (Brush)resources["SurfaceCardBrush"],
+            BorderBrush = (Brush)resources["SurfaceCardBorderBrush"],
+            BorderThickness = new Thickness(1),
+            Foreground = (Brush)resources["TextSecondaryBrush"],
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        button.SetValue(Controls.PillCornerRadius.EnabledProperty, true);
+        button.Click += async (_, _) =>
+        {
+            if (App.Updater is null)
+            {
+                status.Text = "Updates are unavailable in this build.";
+                return;
+            }
+
+            button.IsEnabled = false;
+            status.Text = "Checking…";
+            var result = await App.Updater.CheckNowAsync();
+            status.Text = result switch
+            {
+                UpdateCheckResult.UpToDate => "You're on the latest version.",
+                UpdateCheckResult.UpdateStaged => "Update downloaded — it'll finish next time you reopen Quickening.",
+                _ => "Couldn't check right now. Try again later.",
+            };
+            button.IsEnabled = true;
+        };
+        Grid.SetColumn(button, 1);
+        grid.Children.Add(button);
+
+        return grid;
     }
 
     private static UIElement BuildLinkRow(
