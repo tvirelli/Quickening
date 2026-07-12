@@ -38,6 +38,15 @@ if (-not (Test-Path $notesFile)) {
     throw "No release notes at changelog\$Version.md. Create it (and add a CHANGELOG.md entry) before releasing."
 }
 
+# Push the release commits FIRST. vpk only creates the GitHub *release* via the
+# API - it never pushes the repo - so without this the source tree, CHANGELOG.md,
+# and changelog/ folder silently fall behind every published version.
+Write-Host "==> Pushing commits to origin..." -ForegroundColor Cyan
+git push origin HEAD
+if ($LASTEXITCODE -ne 0) {
+    throw "git push failed - commit and push your changelog/source before releasing."
+}
+
 # --- Build ----------------------------------------------------------------
 Write-Host "==> Publishing win-x64 self-contained build ($Version)..." -ForegroundColor Cyan
 if (Test-Path $publishDir) { Remove-Item $publishDir -Recurse -Force }
