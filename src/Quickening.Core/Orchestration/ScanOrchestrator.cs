@@ -80,6 +80,19 @@ public sealed class ScanResult
     /// </summary>
     public IReadOnlyList<VideoSimilarityEngine.VideoGroup> VideoGroups { get; set; }
         = Array.Empty<VideoSimilarityEngine.VideoGroup>();
+
+    /// <summary>
+    /// Audio files this scan enumerated - populated only when deep audio
+    /// matching was requested, so the App layer can decode and fingerprint them
+    /// (Core can't reach Windows' decoders). Empty otherwise.
+    /// </summary>
+    public IReadOnlyList<Models.FileRecord> AudioFiles { get; init; } = Array.Empty<Models.FileRecord>();
+
+    /// <summary>
+    /// Same-recording groups from deep audio matching. Settable for the same
+    /// reason as VideoGroups: the App computes them after the Core scan.
+    /// </summary>
+    public IReadOnlyList<SoundGroup> SoundGroups { get; set; } = Array.Empty<SoundGroup>();
 }
 
 public enum ScanPhase { Enumerating, Comparing, Finalizing }
@@ -199,7 +212,8 @@ public sealed class ScanOrchestrator
         bool computeBlur = false,
         double blurryMaxSharpness = DefaultBlurryMaxSharpness,
         bool computeAudioDupes = false,
-        bool collectVideoFiles = false)
+        bool collectVideoFiles = false,
+        bool collectAudioFiles = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -210,7 +224,7 @@ public sealed class ScanOrchestrator
         return ProcessScan(
             files, rootPath, enumeration.IncludeHiddenFiles, enumeration.AllowProtectedPaths,
             paranoidMode, progress, cancellationToken, computeSimilarity, similarityMaxDistance,
-            computeBlur, blurryMaxSharpness, computeAudioDupes, collectVideoFiles);
+            computeBlur, blurryMaxSharpness, computeAudioDupes, collectVideoFiles, collectAudioFiles);
     }
 
     /// <summary>
@@ -232,7 +246,8 @@ public sealed class ScanOrchestrator
         bool computeBlur = false,
         double blurryMaxSharpness = DefaultBlurryMaxSharpness,
         bool computeAudioDupes = false,
-        bool collectVideoFiles = false)
+        bool collectVideoFiles = false,
+        bool collectAudioFiles = false)
     {
         // FileEnumerator only checks cancellation once it yields at least one
         // path, so an already-cancelled token against an empty directory
@@ -247,7 +262,7 @@ public sealed class ScanOrchestrator
         return ProcessScan(
             files, rootPath, includeHiddenFiles, allowProtectedPaths,
             paranoidMode, progress, cancellationToken, computeSimilarity, similarityMaxDistance,
-            computeBlur, blurryMaxSharpness, computeAudioDupes, collectVideoFiles);
+            computeBlur, blurryMaxSharpness, computeAudioDupes, collectVideoFiles, collectAudioFiles);
     }
 
     // The post-enumeration work shared by Scan and ScanEnumerated: hashing +
@@ -266,7 +281,8 @@ public sealed class ScanOrchestrator
         bool computeBlur,
         double blurryMaxSharpness,
         bool computeAudioDupes,
-        bool collectVideoFiles)
+        bool collectVideoFiles,
+        bool collectAudioFiles)
     {
         var scanStartUtc = DateTime.UtcNow;
         var hashProvider = new CachingHashProvider(new HashProvider(), _store);
@@ -450,6 +466,9 @@ public sealed class ScanOrchestrator
             MusicGroups = musicGroups,
             VideoFiles = collectVideoFiles
                 ? files.Where(f => f.Category == MimeCategory.Video).ToList()
+                : Array.Empty<Models.FileRecord>(),
+            AudioFiles = collectAudioFiles
+                ? files.Where(f => f.Category == MimeCategory.Audio).ToList()
                 : Array.Empty<Models.FileRecord>(),
         };
     }

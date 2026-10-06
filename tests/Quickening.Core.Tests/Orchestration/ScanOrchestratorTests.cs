@@ -21,6 +21,22 @@ public class ScanOrchestratorTests : IDisposable
     }
 
     [Fact]
+    public void Scan_CollectsAudioFiles_OnlyWhenAsked()
+    {
+        File.WriteAllBytes(Path.Combine(_tempDir, "song.mp3"), new byte[] { 1, 2, 3 });
+        File.WriteAllBytes(Path.Combine(_tempDir, "doc.txt"), new byte[] { 4 });
+        using var store = new SqliteStore("Data Source=:memory:");
+        store.Initialize();
+
+        var without = new ScanOrchestrator(store).Scan(_tempDir);
+        var with = new ScanOrchestrator(store).Scan(_tempDir, collectAudioFiles: true);
+
+        Assert.Empty(without.AudioFiles);
+        Assert.Equal("song.mp3", Path.GetFileName(Assert.Single(with.AudioFiles).Path));
+        Assert.Empty(with.SoundGroups);
+    }
+
+    [Fact]
     public void Scan_FindsDuplicates_AndPersistsHashes()
     {
         var content = "duplicate content"u8.ToArray();

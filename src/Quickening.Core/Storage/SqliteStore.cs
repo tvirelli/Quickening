@@ -101,6 +101,26 @@ public sealed class SqliteStore : IDisposable
                 alterSharpness.ExecuteNonQuery();
             }
 
+            // Deep audio matching's fingerprint cache: one row per audio file,
+            // reused only while size, mtime and fingerprint version all match.
+            using (var audioTable = _connection.CreateCommand())
+            {
+                audioTable.CommandText = """
+                    CREATE TABLE IF NOT EXISTS AudioFingerprints (
+                        Path TEXT PRIMARY KEY COLLATE NOCASE,
+                        SizeBytes INTEGER NOT NULL,
+                        LastWriteTimeUtc TEXT NOT NULL,
+                        Version INTEGER NOT NULL,
+                        DurationSeconds REAL NOT NULL,
+                        BitsPerSample INTEGER NOT NULL,
+                        SampleRateHz INTEGER NOT NULL,
+                        BitrateKbps INTEGER NOT NULL,
+                        Frames BLOB NOT NULL
+                    );
+                    """;
+                audioTable.ExecuteNonQuery();
+            }
+
             using (var pragmaCommand = _connection.CreateCommand())
             {
                 pragmaCommand.CommandText = "PRAGMA journal_mode=WAL;";
@@ -310,16 +330,80 @@ public sealed class SqliteStore : IDisposable
             command.Transaction = transaction;
             command.CommandText = "DELETE FROM Files WHERE Path = $path;";
             var parameter = command.Parameters.Add("$path", SqliteType.Text);
+
+            // A gone file's deep-audio fingerprint goes with it.
+            using var audioCommand = _connection.CreateCommand();
+            audioCommand.Transaction = transaction;
+            audioCommand.CommandText = "DELETE FROM AudioFingerprints WHERE Path = $path;";
+            var audioParameter = audioCommand.Parameters.Add("$path", SqliteType.Text);
             foreach (var path in gonePaths)
             {
                 parameter.Value = path;
                 command.ExecuteNonQuery();
+                audioParameter.Value = path;
+                audioCommand.ExecuteNonQuery();
             }
 
             transaction.Commit();
         }
 
         return gonePaths.Count;
+    }
+
+    public CachedAudioFingerprint? GetAudioFingerprint(string path)
+    {
+        lock (_sync)
+        {
+            using var command = _connection.CreateCommand();
+            command.CommandText = """
+                SELECT SizeBytes, LastWriteTimeUtc, Version, DurationSeconds, BitsPerSample, SampleRateHz, BitrateKbps, Frames
+                FROM AudioFingerprints WHERE Path = $path;
+                """;
+            command.Parameters.AddWithValue("$path", path);
+            using var reader = command.ExecuteReader();
+            if (!reader.Read())
+            {
+                return null;
+            }
+
+            var blob = (byte[])reader["Frames"];
+            var frames = new uint[blob.Length / 4];
+            Buffer.BlockCopy(blob, 0, frames, 0, frames.Length * 4);
+            return new CachedAudioFingerprint(
+                reader.GetInt64(0),
+                DateTime.Parse(reader.GetString(1), null, System.Globalization.DateTimeStyles.RoundtripKind),
+                reader.GetInt32(2),
+                reader.GetDouble(3),
+                reader.GetInt32(4),
+                reader.GetInt32(5),
+                reader.GetInt32(6),
+                frames);
+        }
+    }
+
+    public void UpsertAudioFingerprint(string path, CachedAudioFingerprint fingerprint)
+    {
+        var blob = new byte[fingerprint.Frames.Length * 4];
+        Buffer.BlockCopy(fingerprint.Frames, 0, blob, 0, blob.Length);
+        lock (_sync)
+        {
+            using var command = _connection.CreateCommand();
+            command.CommandText = """
+                INSERT OR REPLACE INTO AudioFingerprints
+                    (Path, SizeBytes, LastWriteTimeUtc, Version, DurationSeconds, BitsPerSample, SampleRateHz, BitrateKbps, Frames)
+                VALUES ($path, $size, $mtime, $version, $duration, $bits, $rate, $kbps, $frames);
+                """;
+            command.Parameters.AddWithValue("$path", path);
+            command.Parameters.AddWithValue("$size", fingerprint.SizeBytes);
+            command.Parameters.AddWithValue("$mtime", fingerprint.LastWriteTimeUtc.ToUniversalTime().ToString("O"));
+            command.Parameters.AddWithValue("$version", fingerprint.Version);
+            command.Parameters.AddWithValue("$duration", fingerprint.DurationSeconds);
+            command.Parameters.AddWithValue("$bits", fingerprint.BitsPerSample);
+            command.Parameters.AddWithValue("$rate", fingerprint.SampleRateHz);
+            command.Parameters.AddWithValue("$kbps", fingerprint.BitrateKbps);
+            command.Parameters.AddWithValue("$frames", blob);
+            command.ExecuteNonQuery();
+        }
     }
 
     public FileRecord? GetFileByPath(string path)
@@ -696,6 +780,11 @@ public sealed class SqliteStore : IDisposable
         }
     }
 }
+
+/// <summary>A cached deep-audio fingerprint row; reuse only when size, mtime and Version match the file.</summary>
+public sealed record CachedAudioFingerprint(
+    long SizeBytes, DateTime LastWriteTimeUtc, int Version, double DurationSeconds,
+    int BitsPerSample, int SampleRateHz, int BitrateKbps, uint[] Frames);
 
 public sealed record RemovalSession(
     long Id,
