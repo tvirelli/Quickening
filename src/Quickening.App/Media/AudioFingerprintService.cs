@@ -50,7 +50,7 @@ public static class AudioFingerprintService
             }
 
             var (start, length) = AcousticFingerprinter.WindowFor(durationSeconds);
-            var pcm = await DecodeAsync(storageFile, start, Math.Max(0, durationSeconds - start - length), cancellationToken);
+            var pcm = await DecodeAsync(storageFile, start, start + length, cancellationToken);
             if (pcm is null)
             {
                 // Some sources reject trimming: decode the whole file and slice.
@@ -79,18 +79,21 @@ public static class AudioFingerprintService
         }
     }
 
-    // Transcodes to an in-memory WAV, 11,025 Hz mono 16-bit, trimming the given
-    // seconds off each end. Null when the source can't be transcoded or yields no
-    // samples (some sources reject trimming - the caller retries untrimmed).
-    private static async Task<short[]?> DecodeAsync(StorageFile file, double trimStart, double trimEnd, CancellationToken cancellationToken)
+    // Transcodes to an in-memory WAV, 11,025 Hz mono 16-bit, from startSeconds to
+    // stopSeconds (0 = to the end). NOTE: MediaTranscoder.TrimStopTime is the
+    // stop POSITION, not "time trimmed off the end" as its docs suggest -
+    // passing the latter decoded 225 s of a 355 s song instead of the 90 s
+    // window. Null when the source can't be transcoded or yields no samples
+    // (some sources reject trimming - the caller retries untrimmed).
+    private static async Task<short[]?> DecodeAsync(StorageFile file, double startSeconds, double stopSeconds, CancellationToken cancellationToken)
     {
         var profile = MediaEncodingProfile.CreateWav(AudioEncodingQuality.Low);
         profile.Audio = AudioEncodingProperties.CreatePcm(AcousticFingerprinter.SampleRate, 1, 16);
         profile.Video = null;
         var transcoder = new MediaTranscoder
         {
-            TrimStartTime = TimeSpan.FromSeconds(trimStart),
-            TrimStopTime = TimeSpan.FromSeconds(trimEnd),
+            TrimStartTime = TimeSpan.FromSeconds(startSeconds),
+            TrimStopTime = TimeSpan.FromSeconds(stopSeconds),
         };
 
         using var input = await file.OpenReadAsync();

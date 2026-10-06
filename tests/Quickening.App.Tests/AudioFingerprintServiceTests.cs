@@ -66,6 +66,21 @@ public class AudioFingerprintServiceTests : IDisposable
         Assert.Equal("WAV · 16-bit · 44.1 kHz", signature.Fidelity.Label);
     }
 
+    // Regression: MediaTranscoder.TrimStopTime is the STOP POSITION, not "time to
+    // trim from the end" - passing the latter made a 355 s song decode 225 s
+    // instead of the 90 s window. A 150 s file (window 20 s..110 s) exposes it.
+    [Fact]
+    public async Task TryGetSignatureAsync_LongTrack_FingerprintsOnlyTheNinetySecondWindow()
+    {
+        var path = WriteWav(Path.Combine(_dir, "long.wav"), 150);
+
+        var signature = await AudioFingerprintService.TryGetSignatureAsync(Record(path), store: null, CancellationToken.None);
+
+        Assert.NotNull(signature);
+        Assert.InRange(signature!.DurationSeconds, 149.5, 150.5);
+        Assert.InRange(signature.Frames.Length, (int)(89 * AcousticFingerprinter.FramesPerSecond), (int)(91 * AcousticFingerprinter.FramesPerSecond));
+    }
+
     [Fact]
     public async Task TryGetSignatureAsync_ReturnsNull_ForAFileThatIsNotAudio()
     {
