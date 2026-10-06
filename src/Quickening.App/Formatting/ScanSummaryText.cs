@@ -40,9 +40,16 @@ public static class ScanSummaryText
     /// The Results page header. With no exact duplicates but close matches
     /// below, "0 duplicate groups · 0 files · 0 B reclaimable" sat above a list
     /// of files and read as a contradiction - say what's there instead.
+    /// totalGroupCount is the unfiltered count, so filters that hide every
+    /// group aren't reported as the scan finding none.
     /// </summary>
-    public static string ResultsHeader(int groupCount, int fileCount, long reclaimableBytes, bool hasCloseMatches)
+    public static string ResultsHeader(int groupCount, int fileCount, long reclaimableBytes, bool hasCloseMatches, int totalGroupCount = 0)
     {
+        if (groupCount == 0 && totalGroupCount > 0)
+        {
+            return "No duplicates match your filters";
+        }
+
         if (groupCount == 0 && hasCloseMatches)
         {
             return "No exact duplicates · close matches below";

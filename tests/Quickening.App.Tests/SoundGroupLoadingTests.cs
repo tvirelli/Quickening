@@ -75,4 +75,32 @@ public class SoundGroupLoadingTests
         var only = Assert.Single(vm.MusicGroups);
         Assert.Equal("Tags match", only.MatchHint);
     }
+
+    // Final review: tags group {A,B}, sound finds {A,B,C}. Shown as two groups,
+    // A and B each had two independent checkboxes - ticking "all but one" in
+    // both groups could recycle every copy. Each file must appear exactly once;
+    // the extra copy joins the tag group it overlaps.
+    [Fact]
+    public void LoadSoundGroups_PartialOverlapWithTags_AddsTheExtraCopyToTheTagGroup()
+    {
+        var a = Sig(@"C:\m\a.mp3", 0, 44100, 320);
+        var b = Sig(@"C:\m\b.mp3", 0, 44100, 128);
+        var c = Sig(@"C:\m\untagged.wav", 24);
+        var vm = new ResultsViewModel(new FakeRecycleBinService());
+        vm.LoadMusicGroups(new[]
+        {
+            new AudioDuplicateEngine.MusicGroup("Song — Artist", new[]
+            {
+                new AudioDuplicateEngine.SongCopy(a.File, 320, 200),
+                new AudioDuplicateEngine.SongCopy(b.File, 128, 200),
+            }),
+        });
+
+        vm.LoadSoundGroups(new[] { new SoundGroup(new[] { a, b, c }, 93) });
+
+        var only = Assert.Single(vm.MusicGroups);
+        Assert.Equal(new[] { a.File.Path, b.File.Path, c.File.Path }.Order(), only.Files.Select(f => f.Path).Order());
+        Assert.Equal("WAV · 24-bit · 48 kHz", only.Files.Single(f => f.Path == c.File.Path).FormatLabel);
+        Assert.All(only.Files, f => Assert.False(f.IsSelected));
+    }
 }

@@ -665,7 +665,7 @@ public sealed partial class ResultsPage : Page
         // section only (each other section shows its own count on its bar).
         var hasCloseMatches = _viewModel.SimilarityGroups.Count > 0 || _viewModel.BlurryPhotos.Count > 0
             || _viewModel.MusicGroups.Count > 0 || _viewModel.VideoGroups.Count > 0;
-        SummaryText.Text = ScanSummaryText.ResultsHeader(groupCount, fileCount, reclaimableBytes, hasCloseMatches);
+        SummaryText.Text = ScanSummaryText.ResultsHeader(groupCount, fileCount, reclaimableBytes, hasCloseMatches, _viewModel.TotalDuplicateGroupCount);
 
         // Slim per-list-header count next to the Select toolbar.
         ResultCountText.Text = $"{groupCount} duplicate group{(groupCount == 1 ? "" : "s")}";

@@ -65,4 +65,13 @@ public class ScanSummaryTextTests
         Assert.Equal("No exact duplicates · close matches below", ScanSummaryText.ResultsHeader(0, 0, 0, hasCloseMatches: true));
         Assert.Equal("0 duplicate groups · 0 files · 0 B reclaimable", ScanSummaryText.ResultsHeader(0, 0, 0, hasCloseMatches: false));
     }
+
+    // Final review: filters that hide every duplicate group made the header say
+    // "No exact duplicates" although the scan found some - say the filters did it.
+    [Fact]
+    public void ResultsHeader_WhenFiltersHideEveryDuplicateGroup_SaysSo()
+    {
+        Assert.Equal("No duplicates match your filters", ScanSummaryText.ResultsHeader(0, 0, 0, hasCloseMatches: true, totalGroupCount: 4));
+        Assert.Equal("No duplicates match your filters", ScanSummaryText.ResultsHeader(0, 0, 0, hasCloseMatches: false, totalGroupCount: 4));
+    }
 }

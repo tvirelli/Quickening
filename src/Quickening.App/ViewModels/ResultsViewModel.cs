@@ -405,6 +405,9 @@ public sealed class ResultsViewModel
     // to restore from.
     private List<List<SelectableFile>> _allGroups = new();
 
+    /// <summary>Duplicate groups before filters - lets the header tell "none found" from "filtered out".</summary>
+    public int TotalDuplicateGroupCount => _allGroups.Count;
+
     public ObservableCollection<DuplicateGroupViewModel> Groups { get; } = new();
 
     // "Looks-alike photos" (new-screens 4k) - unlike Groups, not re-derived
@@ -911,15 +914,35 @@ public sealed class ResultsViewModel
     /// </summary>
     public void LoadSoundGroups(IReadOnlyList<Quickening.Core.Audio.SoundGroup> soundGroups)
     {
-        var tagGroupPaths = MusicGroups
-            .Select(g => g.Files.Select(f => f.Path).ToHashSet(StringComparer.OrdinalIgnoreCase))
+        var tagGroups = MusicGroups
+            .Select(g => (Group: g, Paths: g.Files.Select(f => f.Path).ToHashSet(StringComparer.OrdinalIgnoreCase)))
             .ToList();
         var byFidelity = Comparer<Quickening.Core.Audio.AudioFidelity>.Create(Quickening.Core.Audio.AudioFidelity.Compare);
+        static SelectableFile ToFile(Quickening.Core.Audio.AcousticSignature m) => new()
+        {
+            Path = m.File.Path,
+            SizeBytes = m.File.SizeBytes,
+            Category = m.File.Category,
+            LastWriteTimeUtc = m.File.LastWriteTimeUtc,
+            CreationTimeUtc = m.File.CreationTimeUtc,
+            FormatLabel = m.Fidelity.Label,
+        };
 
         foreach (var group in soundGroups)
         {
-            if (tagGroupPaths.Any(paths => group.Members.All(m => paths.Contains(m.File.Path))))
+            // Every file appears in exactly one group: two groups sharing a file
+            // would each offer its own checkbox for it, and "all but one" ticked
+            // in both could recycle every copy. A sound group overlapping a tag
+            // group adds its extra copies to that group instead.
+            var overlapping = tagGroups.FirstOrDefault(t => group.Members.Any(m => t.Paths.Contains(m.File.Path)));
+            if (overlapping.Group is not null)
             {
+                foreach (var extra in group.Members.Where(m => tagGroups.All(t => !t.Paths.Contains(m.File.Path))))
+                {
+                    overlapping.Group.Files.Add(ToFile(extra));
+                    overlapping.Paths.Add(extra.File.Path);
+                }
+
                 continue;
             }
 
@@ -927,15 +950,7 @@ public sealed class ResultsViewModel
                 .OrderByDescending(m => m.Fidelity, byFidelity)
                 .ThenByDescending(m => m.File.SizeBytes)
                 .ToList();
-            var files = ordered.Select(m => new SelectableFile
-            {
-                Path = m.File.Path,
-                SizeBytes = m.File.SizeBytes,
-                Category = m.File.Category,
-                LastWriteTimeUtc = m.File.LastWriteTimeUtc,
-                CreationTimeUtc = m.File.CreationTimeUtc,
-                FormatLabel = m.Fidelity.Label,
-            }).ToList();
+            var files = ordered.Select(ToFile).ToList();
 
             if (Quickening.Core.Audio.AudioFidelity.Compare(ordered[0].Fidelity, ordered[1].Fidelity) > 0)
             {

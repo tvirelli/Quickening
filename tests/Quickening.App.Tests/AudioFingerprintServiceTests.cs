@@ -81,6 +81,20 @@ public class AudioFingerprintServiceTests : IDisposable
         Assert.InRange(signature.Frames.Length, (int)(89 * AcousticFingerprinter.FramesPerSecond), (int)(91 * AcousticFingerprinter.FramesPerSecond));
     }
 
+    // Final review: a cache failure (locked or damaged database) must not drop
+    // the song - the spec says carry on uncached. An uninitialised store has
+    // no tables, so every cache read and write throws SqliteException.
+    [Fact]
+    public async Task TryGetSignatureAsync_StillFingerprints_WhenTheCacheFails()
+    {
+        var path = WriteWav(Path.Combine(_dir, "tone.wav"), 30);
+        using var brokenStore = new Quickening.Core.Storage.SqliteStore("Data Source=:memory:");
+
+        var signature = await AudioFingerprintService.TryGetSignatureAsync(Record(path), brokenStore, CancellationToken.None);
+
+        Assert.NotNull(signature);
+    }
+
     [Fact]
     public async Task TryGetSignatureAsync_ReturnsNull_ForAFileThatIsNotAudio()
     {

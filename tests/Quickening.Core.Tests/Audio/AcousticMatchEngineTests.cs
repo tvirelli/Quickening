@@ -82,8 +82,43 @@ public class AcousticMatchEngineTests
         Assert.DoesNotContain(groups, g => g.Members.Any(m => m.File.Path.EndsWith("a.wav")) && g.Members.Any(m => m.File.Path.EndsWith("c.wav")));
     }
 
+    private static AcousticSignature RawSig(string name, uint[] frames, double duration = 200) => new(
+        new FileRecord { Path = $@"C:\music\{name}", SizeBytes = 1, Category = MimeCategory.Audio, LastWriteTimeUtc = DateTime.UtcNow },
+        duration, frames, AudioFidelity.Create(name, 16, 44100, 0));
+
+    // Final review: with 200+ files the old exact-value index needed >= 3 frames
+    // identical in all 32 bits - at BER 0.2 only ~1.5 of 1,950 frames are, so a
+    // genuine (weak-end) pair grouped in a folder of 199 songs and vanished at
+    // 200. Matching must not depend on library size.
     [Fact]
-    public void LargeSets_UseTheIndex_AndStillFindPairs()
+    public void LargeSets_StillFindAWeakEndPair_AtBitErrorRateTwenty()
+    {
+        var rng = new Random(42);
+        uint[] RandomFrames() => Enumerable.Range(0, 1950).Select(_ => (uint)rng.NextInt64(1, uint.MaxValue)).ToArray();
+        var original = RandomFrames();
+        var degraded = original.Select(f =>
+        {
+            var x = f;
+            for (var bit = 0; bit < 32; bit++)
+            {
+                if (rng.NextDouble() < 0.2) x ^= 1u << bit;
+            }
+
+            return x == AcousticFingerprinter.Quiet ? 1u : x;
+        }).ToArray();
+
+        var sigs = Enumerable.Range(0, 210).Select(i => RawSig($"s{i}.wav", RandomFrames(), 200 + i % 4)).ToList();
+        sigs.Add(RawSig("original.wav", original, 201));
+        sigs.Add(RawSig("degraded.mp3", degraded, 201));
+
+        var groups = new AcousticMatchEngine().FindSameRecordings(sigs);
+
+        var group = Assert.Single(groups);
+        Assert.Equal(new[] { "degraded.mp3", "original.wav" }, group.Members.Select(m => Path.GetFileName(m.File.Path)).Order());
+    }
+
+    [Fact]
+    public void LargeSets_StillFindPairs_AmongManySongs()
     {
         var sigs = new List<AcousticSignature>();
         for (var i = 0; i < 210; i++)

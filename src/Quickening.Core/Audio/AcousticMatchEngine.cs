@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Numerics;
 using Quickening.Core.Models;
 
@@ -25,8 +26,8 @@ public sealed class AcousticMatchEngine
     private const double MinAudibleSeconds = 10;
     private const int MaxOffsetFrames = 108;
     private const double MinOverlap = 0.7;
-    private const int IndexThreshold = 200;
-    private const int MinSharedFrames = 3;
+    private const int PrefilterStride = 16;
+    private const double PrefilterMaxBitErrorRate = 0.35;
 
     public static bool IsEligible(AcousticSignature signature) =>
         signature.DurationSeconds >= MinDurationSeconds
@@ -37,11 +38,18 @@ public sealed class AcousticMatchEngine
     /// unrelated), counting only frames audible in both; null when no offset
     /// overlaps at least 70% of the shorter fingerprint's audible frames.
     /// </summary>
-    public static double? BitErrorRate(uint[] a, uint[] b)
+    public static double? BitErrorRate(uint[] a, uint[] b) =>
+        BitErrorRate(a, b, Audible(a), Audible(b), stride: 1);
+
+    private static int Audible(uint[] frames) => frames.Count(f => f != AcousticFingerprinter.Quiet);
+
+    // stride > 1 compares every stride-th frame of a: a cheap estimate of the
+    // same rate. Unrelated songs still sit near 0.5 on the sample, so it rules
+    // out almost every pair at 1/stride of the cost; the overlap requirement is
+    // scaled to the sample.
+    private static double? BitErrorRate(uint[] a, uint[] b, int audibleA, int audibleB, int stride)
     {
-        var audibleA = a.Count(f => f != AcousticFingerprinter.Quiet);
-        var audibleB = b.Count(f => f != AcousticFingerprinter.Quiet);
-        var required = MinOverlap * Math.Min(audibleA, audibleB);
+        var required = MinOverlap * Math.Min(audibleA, audibleB) / stride;
         if (required <= 0)
         {
             return null;
@@ -52,7 +60,7 @@ public sealed class AcousticMatchEngine
         {
             long errors = 0;
             var compared = 0;
-            for (var i = Math.Max(0, -offset); i < a.Length && i + offset < b.Length; i++)
+            for (var i = Math.Max(0, -offset); i < a.Length && i + offset < b.Length; i += stride)
             {
                 var x = a[i];
                 var y = b[i + offset];
@@ -86,31 +94,30 @@ public sealed class AcousticMatchEngine
     {
         var eligible = signatures.Where(IsEligible).OrderBy(s => s.DurationSeconds).ToList();
         var n = eligible.Count;
-        var useIndex = n >= IndexThreshold;
-        var frameSets = useIndex
-            ? eligible.Select(s => s.Frames.Where(f => f != AcousticFingerprinter.Quiet).ToHashSet()).ToList()
-            : null;
-        var index = useIndex ? BuildIndex(frameSets!) : null;
+        var audible = eligible.Select(s => Audible(s.Frames)).ToArray();
 
-        // BER for every verified matching pair, keyed (i, j) with i < j.
-        var matches = new Dictionary<(int, int), double>();
-        for (var i = 0; i < n; i++)
+        // BER for every verified matching pair, keyed (i, j) with i < j. Each
+        // duration-compatible pair gets the sampled estimate first and the full
+        // comparison only when that comes out close - no index, so recall never
+        // depends on library size and memory stays at the signatures themselves.
+        var matches = new ConcurrentDictionary<(int, int), double>();
+        Parallel.For(0, n, new ParallelOptions { CancellationToken = cancellationToken }, i =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var shared = useIndex ? SharedFrameCounts(i, frameSets![i], index!) : null;
             for (var j = i + 1; j < n && eligible[j].DurationSeconds - eligible[i].DurationSeconds <= MaxDurationDifferenceSeconds; j++)
             {
-                if (shared is not null && (!shared.TryGetValue(j, out var count) || count < MinSharedFrames))
+                cancellationToken.ThrowIfCancellationRequested();
+                if (BitErrorRate(eligible[i].Frames, eligible[j].Frames, audible[i], audible[j], PrefilterStride) is not { } estimate
+                    || estimate > PrefilterMaxBitErrorRate)
                 {
                     continue;
                 }
 
-                if (BitErrorRate(eligible[i].Frames, eligible[j].Frames) is { } rate && rate <= MaxBitErrorRate)
+                if (BitErrorRate(eligible[i].Frames, eligible[j].Frames, audible[i], audible[j], stride: 1) is { } rate && rate <= MaxBitErrorRate)
                 {
                     matches[(i, j)] = rate;
                 }
             }
-        }
+        });
 
         // One-hop star grouping around an anchor (same rule as images/video):
         // every member is within the threshold of the anchor - never chained.
@@ -149,44 +156,5 @@ public sealed class AcousticMatchEngine
         }
 
         return groups;
-    }
-
-    // value -> indices of the signatures containing it. Same-recording copies
-    // share many exact 32-bit frame values; unrelated songs share almost none,
-    // so this cheaply finds candidates in large libraries.
-    private static Dictionary<uint, List<int>> BuildIndex(List<HashSet<uint>> frameSets)
-    {
-        var index = new Dictionary<uint, List<int>>();
-        for (var s = 0; s < frameSets.Count; s++)
-        {
-            foreach (var value in frameSets[s])
-            {
-                if (!index.TryGetValue(value, out var list))
-                {
-                    index[value] = list = new List<int>();
-                }
-
-                list.Add(s);
-            }
-        }
-
-        return index;
-    }
-
-    private static Dictionary<int, int> SharedFrameCounts(int self, HashSet<uint> frames, Dictionary<uint, List<int>> index)
-    {
-        var counts = new Dictionary<int, int>();
-        foreach (var value in frames)
-        {
-            foreach (var other in index[value])
-            {
-                if (other > self)
-                {
-                    counts[other] = counts.TryGetValue(other, out var c) ? c + 1 : 1;
-                }
-            }
-        }
-
-        return counts;
     }
 }

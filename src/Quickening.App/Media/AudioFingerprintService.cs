@@ -29,7 +29,7 @@ public static class AudioFingerprintService
     {
         try
         {
-            if (store?.GetAudioFingerprint(file.Path) is { } cached
+            if (TryReadCache(store, file.Path) is { } cached
                 && cached.Version == AcousticFingerprinter.Version
                 && cached.SizeBytes == file.SizeBytes
                 && cached.LastWriteTimeUtc == file.LastWriteTimeUtc)
@@ -64,7 +64,7 @@ public static class AudioFingerprintService
             }
 
             var frames = AcousticFingerprinter.Compute(pcm);
-            store?.UpsertAudioFingerprint(file.Path, new CachedAudioFingerprint(
+            TryWriteCache(store, file.Path, new CachedAudioFingerprint(
                 file.SizeBytes, file.LastWriteTimeUtc, AcousticFingerprinter.Version, durationSeconds, bits, sampleRate, kbps, frames));
             return new AcousticSignature(file, durationSeconds, frames, AudioFidelity.Create(file.Path, bits, sampleRate, kbps));
         }
@@ -76,6 +76,33 @@ public static class AudioFingerprintService
         {
             App.Logger?.LogInfo($"Deep audio: skipped '{file.Path}': {ex.Message}");
             return null;
+        }
+    }
+
+    // The cache is an optimisation: a locked or damaged database means this
+    // song is decoded (and not saved) rather than left out of the scan.
+    private static CachedAudioFingerprint? TryReadCache(SqliteStore? store, string path)
+    {
+        try
+        {
+            return store?.GetAudioFingerprint(path);
+        }
+        catch (Exception ex)
+        {
+            App.Logger?.LogInfo($"Deep audio: fingerprint cache read failed for '{path}': {ex.Message}");
+            return null;
+        }
+    }
+
+    private static void TryWriteCache(SqliteStore? store, string path, CachedAudioFingerprint fingerprint)
+    {
+        try
+        {
+            store?.UpsertAudioFingerprint(path, fingerprint);
+        }
+        catch (Exception ex)
+        {
+            App.Logger?.LogInfo($"Deep audio: fingerprint cache write failed for '{path}': {ex.Message}");
         }
     }
 
