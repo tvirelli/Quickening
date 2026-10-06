@@ -204,7 +204,7 @@ public sealed partial class ResultsPage : Page
         ("duplicates", "Duplicates"),
         ("similar", "Similar photos"),
         ("video", "Similar videos"),
-        ("music", "Duplicate songs"),
+        ("music", "Same song"),
         ("blurry", "Blurry photos"),
         ("ignored", "Ignored"),
     };
@@ -216,7 +216,7 @@ public sealed partial class ResultsPage : Page
         ["duplicates"] = ("Duplicates", 0x5B8CFF, "EXACT COPIES", 0x5B8CFF, 0xB9CCFF),
         ["similar"] = ("Similar photos", 0x8C6EFF, "SIMILAR · NOT IDENTICAL", 0x8C6EFF, 0xB9A5FF),
         ["video"] = ("Similar videos", 0xB06EFF, "SAME CLIP · DIFFERENT FILE", 0xB06EFF, 0xD3B9FF),
-        ["music"] = ("Duplicate songs", 0x5EE7B7, "SAME SONG · DIFFERENT FILE", 0x5EE7B7, 0x9CF0D0),
+        ["music"] = ("Same song", 0x5EE7B7, "SAME SONG · DIFFERENT FILE", 0x5EE7B7, 0x9CF0D0),
         ["blurry"] = ("Blurry photos", 0xFF9A3D, "LIKELY BLURRY · REVIEW", 0xFF9A3D, 0xFFC78F),
         ["ignored"] = ("Ignored", 0x6B7699, "KEPT ON PURPOSE", 0x6B7699, 0xB6BFD8),
     };
@@ -354,7 +354,9 @@ public sealed partial class ResultsPage : Page
                     rows.Add(new SubHeaderRow
                     {
                         Title = group.SongLabel,
-                        Hint = $"{visible.Count} copies",
+                        Hint = string.IsNullOrEmpty(group.MatchHint)
+                            ? $"{visible.Count} copies"
+                            : $"{group.MatchHint} · {visible.Count} copies",
                         HintFillBrush = Rgb(0x5EE7B7, 0x24),
                         HintBorderBrush = Rgb(0x5EE7B7, 0x66),
                         HintTextBrush = Rgb(0x9CF0D0),
@@ -480,6 +482,7 @@ public sealed partial class ResultsPage : Page
             _viewModel.LoadSimilarityGroups(scanResult.SimilarityGroups);
             _viewModel.LoadBlurryPhotos(scanResult.BlurryPhotos);
             _viewModel.LoadMusicGroups(scanResult.MusicGroups);
+            _viewModel.LoadSoundGroups(scanResult.SoundGroups);
             _viewModel.LoadVideoGroups(scanResult.VideoGroups);
             PopulateCategorySidebar(scanResult);
             PopulateExtensionCombo();

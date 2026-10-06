@@ -139,6 +139,12 @@ public sealed class SelectableFile : INotifyPropertyChanged
     // (before any row realizes), so a plain computed property suffices.
     public bool HasHintLabel => !string.IsNullOrEmpty(HintLabel);
 
+    // Audio format for same-song rows ("WAV · 24-bit · 48 kHz"), so the user
+    // can see why one copy is badged BEST QUALITY. Null elsewhere.
+    public string? FormatLabel { get; set; }
+
+    public bool HasFormatLabel => !string.IsNullOrEmpty(FormatLabel);
+
     // The owning section's left-edge rail colour on the Results page (stamped
     // by ResultsPage.BuildSectionChildren before every rebuild, so it's set
     // before any row realizes - a plain property is enough). Null on pages
@@ -375,6 +381,10 @@ public sealed class MusicGroupViewModel : INotifyPropertyChanged
     }
 
     public required ObservableCollection<SelectableFile> Files { get; init; }
+
+    // How the group matched, shown in its header: "Tags match" for the
+    // tag-based pass, "Sounds the same · 94%" for deep audio matching.
+    public string MatchHint { get; init; } = "";
 }
 
 /// <summary>
@@ -885,6 +895,57 @@ public sealed class ResultsViewModel
             MusicGroups.Add(new MusicGroupViewModel
             {
                 SongLabel = group.SongLabel,
+                MatchHint = "Tags match",
+                Files = new ObservableCollection<SelectableFile>(files),
+            });
+        }
+    }
+
+    /// <summary>
+    /// Adds deep-audio "same recording" groups to the songs section, after the
+    /// tag-based groups (call LoadMusicGroups first). A group whose files are
+    /// all already in one tag group is skipped - the same songs listed twice
+    /// would just be noise. Copies are ordered by fidelity; the top one gets
+    /// BEST QUALITY only when it's strictly better than the runner-up. Never
+    /// auto-selected.
+    /// </summary>
+    public void LoadSoundGroups(IReadOnlyList<Quickening.Core.Audio.SoundGroup> soundGroups)
+    {
+        var tagGroupPaths = MusicGroups
+            .Select(g => g.Files.Select(f => f.Path).ToHashSet(StringComparer.OrdinalIgnoreCase))
+            .ToList();
+        var byFidelity = Comparer<Quickening.Core.Audio.AudioFidelity>.Create(Quickening.Core.Audio.AudioFidelity.Compare);
+
+        foreach (var group in soundGroups)
+        {
+            if (tagGroupPaths.Any(paths => group.Members.All(m => paths.Contains(m.File.Path))))
+            {
+                continue;
+            }
+
+            var ordered = group.Members
+                .OrderByDescending(m => m.Fidelity, byFidelity)
+                .ThenByDescending(m => m.File.SizeBytes)
+                .ToList();
+            var files = ordered.Select(m => new SelectableFile
+            {
+                Path = m.File.Path,
+                SizeBytes = m.File.SizeBytes,
+                Category = m.File.Category,
+                LastWriteTimeUtc = m.File.LastWriteTimeUtc,
+                CreationTimeUtc = m.File.CreationTimeUtc,
+                FormatLabel = m.Fidelity.Label,
+            }).ToList();
+
+            if (Quickening.Core.Audio.AudioFidelity.Compare(ordered[0].Fidelity, ordered[1].Fidelity) > 0)
+            {
+                files[0].HintLabel = "BEST QUALITY";
+            }
+
+            MusicGroups.Add(new MusicGroupViewModel
+            {
+                SongLabel = System.IO.Path.GetFileNameWithoutExtension(ordered[0].File.Path),
+                MatchHint = $"Sounds the same · {group.MatchPercent}%",
                 Files = new ObservableCollection<SelectableFile>(files),
             });
         }

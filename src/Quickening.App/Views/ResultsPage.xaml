@@ -422,6 +422,17 @@
                                                FontSize="{StaticResource FontSizeMicroPill}" FontWeight="ExtraBold"
                                                Foreground="{StaticResource SuccessBrush}" />
                                 </Border>
+                                <!-- Audio format for same-song rows ("WAV · 24-bit · 48 kHz"):
+                                     shows why one copy is badged BEST QUALITY. -->
+                                <Border Padding="9,2" controls:PillCornerRadius.Enabled="True"
+                                        Background="{StaticResource SurfaceCardBrush}"
+                                        BorderBrush="{StaticResource SurfaceCardBorderBrush}" BorderThickness="1"
+                                        VerticalAlignment="Center"
+                                        Visibility="{Binding HasFormatLabel, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <TextBlock Text="{Binding FormatLabel}" FontFamily="{StaticResource BodyFontFamily}"
+                                               FontSize="{StaticResource FontSizeMicroPill}" FontWeight="ExtraBold"
+                                               Foreground="{StaticResource TextSecondaryBrush}" />
+                                </Border>
                                 <Border Padding="9,2" controls:PillCornerRadius.Enabled="True"
                                         Background="{StaticResource SurfaceCardBrush}"
                                         BorderBrush="{StaticResource SurfaceCardBorderBrush}" BorderThickness="1"
