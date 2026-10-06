@@ -84,9 +84,11 @@
                 <TextBlock.RenderTransform>
                     <ScaleTransform x:Name="HeadlineScale" ScaleX="0.6" ScaleY="0.6" />
                 </TextBlock.RenderTransform>
-                <Run Text="Nice — " />
+                <!-- No padding spaces inside the Runs: XAML already inserts one
+                     between adjacent Runs, which doubled them ("Nice —  128 KB  back!"). -->
+                <Run Text="Nice —" />
                 <Run x:Name="HeadlineSizeText" Foreground="{StaticResource SuccessBrush}" />
-                <Run Text=" back!" />
+                <Run Text="back!" />
             </TextBlock>
 
             <TextBlock x:Name="SubtitleText" HorizontalAlignment="Center" Margin="0,14,0,0"
@@ -111,7 +113,7 @@
                                    FontSize="{StaticResource FontSizeCta}" FontWeight="Bold" Foreground="White" />
                     </Border>
                 </Button>
-                <Button Content="Review what's left" Click="ReviewWhatsLeft_Click" Padding="36,16"
+                <Button x:Name="ReviewWhatsLeftButton" Content="Review what's left" Click="ReviewWhatsLeft_Click" Padding="36,16"
                         controls:PillCornerRadius.Enabled="True" Background="Transparent"
                         Foreground="{StaticResource TextBodyEmphasisBrush}"
                         FontFamily="{StaticResource DisplayFontFamily}" FontSize="16" FontWeight="SemiBold"

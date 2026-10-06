@@ -25,6 +25,7 @@
         <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
         <converters:InverseBoolConverter x:Key="InverseBoolConverter" />
         <converters:BoolToDoubleConverter x:Key="NetworkRowOpacityConverter" TrueValue="0.55" FalseValue="1" />
+        <converters:BoolToDoubleConverter x:Key="IgnoredRowOpacityConverter" TrueValue="0.45" FalseValue="1" />
         <converters:CategoryIconTemplateConverter x:Key="CategoryIconTemplateConverter" />
         <converters:CategoryFillBrushConverter x:Key="CategoryFillBrushConverter" />
         <converters:GroupSwatchBrushConverter x:Key="GroupSwatchBrushConverter" />
@@ -254,7 +255,23 @@
             group rather than a stack of separate boxes.
         -->
         <DataTemplate x:Key="ResultsHeaderRowTemplate">
-            <Border CornerRadius="18,18,0,0" Background="#09FFFFFF"
+            <!--
+                Rail + indent wrapper (same on all three child-row templates):
+                the 3px stripe in the owning section's colour plus the left
+                inset is what makes rows read as BELONGING to the collapsible
+                bar above them. The Rectangle stretches over the row's whole
+                grid cell - including any inter-card margin - so the stripe
+                runs continuously down the section instead of breaking at
+                the gaps between group cards.
+            -->
+            <Grid Margin="8,0,0,0" ColumnSpacing="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="3" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Rectangle Width="3" RadiusX="1.5" RadiusY="1.5" Fill="{Binding SectionRailBrush}"
+                           VerticalAlignment="Stretch" />
+            <Border Grid.Column="1" CornerRadius="18,18,0,0" Background="#09FFFFFF"
                     BorderBrush="#12FFFFFF" BorderThickness="1,1,1,0">
                 <Border BorderThickness="0,0,0,1" BorderBrush="#0FFFFFFF" Padding="18,13">
                     <Grid ColumnSpacing="12">
@@ -279,10 +296,11 @@
                         <Border Grid.Column="3" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="6,0,0,0"
                                 controls:PillCornerRadius.Enabled="True"
                                 Visibility="{Binding Group.IsLikelyCreatedTogether, Converter={StaticResource BoolToVisibilityConverter}}"
-                                Background="#1FFF8A5C" BorderBrush="#66FF8A5C" BorderThickness="1" Padding="9,2">
+                                Background="{StaticResource WarningFillBrush}" BorderBrush="{StaticResource WarningFillBorderBrush}"
+                                BorderThickness="1" Padding="9,2">
                             <TextBlock Text="Created together — may belong to an app or set"
-                                       FontFamily="{StaticResource BodyFontFamily}" FontSize="10.5" FontWeight="ExtraBold"
-                                       Foreground="#FF8A5C" />
+                                       FontFamily="{StaticResource BodyFontFamily}" FontSize="{StaticResource FontSizeMicroPill}" FontWeight="ExtraBold"
+                                       Foreground="{StaticResource WarningBrush}" />
                         </Border>
                         <TextBlock Grid.Column="4"
                                    Text="{Binding Group.Files, Converter={StaticResource GroupFreesLabelConverter}}"
@@ -291,10 +309,19 @@
                     </Grid>
                 </Border>
             </Border>
+            </Grid>
         </DataTemplate>
 
         <DataTemplate x:Key="ResultsFileRowTemplate">
-            <Border Background="#09FFFFFF" BorderBrush="#12FFFFFF"
+            <!-- Rail + indent wrapper - see ResultsHeaderRowTemplate's comment. -->
+            <Grid Margin="8,0,0,0" ColumnSpacing="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="3" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Rectangle Width="3" RadiusX="1.5" RadiusY="1.5" Fill="{Binding SectionRailBrush}"
+                           VerticalAlignment="Stretch" />
+            <Border Grid.Column="1" Background="#09FFFFFF" BorderBrush="#12FFFFFF"
                     CornerRadius="{Binding IsLastInGroup, Converter={StaticResource LastInGroupCornerRadiusConverter}}"
                     BorderThickness="{Binding IsLastInGroup, Converter={StaticResource LastInGroupBorderThicknessConverter}}"
                     Margin="{Binding IsLastInGroup, Converter={StaticResource LastInGroupMarginConverter}}"
@@ -318,10 +345,14 @@
                         <MenuFlyout Opening="FileRowContextMenu_Opening">
                             <MenuFlyoutItem Text="Open file" Click="OpenFile_Click" />
                             <MenuFlyoutItem Text="Open file location" Click="OpenFileLocation_Click" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem Text="Ignore this file" Click="IgnoreFile_Click" Tag="ignore-file" />
+                            <MenuFlyoutItem Text="Ignore this folder" Click="IgnoreFolder_Click" Tag="ignore-folder" />
+                            <MenuFlyoutItem Text="Stop ignoring" Click="UnignoreFile_Click" Tag="unignore" />
                         </MenuFlyout>
                     </Border.ContextFlyout>
 
-                    <Grid ColumnSpacing="14">
+                    <Grid ColumnSpacing="14" Opacity="{Binding IsIgnored, Converter={StaticResource IgnoredRowOpacityConverter}}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="20" />
                             <ColumnDefinition Width="44" />
@@ -331,10 +362,15 @@
                             <ColumnDefinition Width="78" />
                         </Grid.ColumnDefinitions>
 
+                        <!-- IsSelectable = !network && !ignored: ignored rows (the
+                             Ignored section reuses this template) must not offer a
+                             live-looking checkbox when selection/deletion exclude
+                             them. -->
                         <CheckBox Grid.Column="0" Width="20" Height="20" Padding="0"
                                   MinWidth="0" MinHeight="0"
                                   IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                  IsEnabled="{Binding IsOnNetworkDrive, Converter={StaticResource InverseBoolConverter}}"
+                                  AutomationProperties.Name="{Binding Path, Converter={StaticResource FileNameFromPathConverter}}"
+                                  IsEnabled="{Binding IsSelectable}"
                                   Checked="FileSelectionChanged" Unchecked="FileSelectionChanged"
                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
 
@@ -368,6 +404,28 @@
                                         Background="{StaticResource SurfaceCardBrush}"
                                         BorderBrush="{StaticResource SurfaceCardBorderBrush}" BorderThickness="1"
                                         VerticalAlignment="Center"
+                                        Visibility="{Binding IsIgnored, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <TextBlock Text="&#x1F6AB; IGNORED" FontFamily="{StaticResource BodyFontFamily}"
+                                               FontSize="{StaticResource FontSizeMicroPill}" FontWeight="ExtraBold"
+                                               Foreground="{StaticResource TextFaintBrush}" />
+                                </Border>
+                                <!-- Best-copy hint for similarity/music/video rows
+                                     ("BEST QUALITY" / "HIGHER RES" / "BIGGER FILE") -
+                                     a hint, not a keep-recommendation (those sections
+                                     are never auto-selected). -->
+                                <Border Padding="9,2" controls:PillCornerRadius.Enabled="True"
+                                        Background="{StaticResource SuccessFillBrush}"
+                                        BorderBrush="{StaticResource SuccessFillBorderBrush}" BorderThickness="1"
+                                        VerticalAlignment="Center"
+                                        Visibility="{Binding HasHintLabel, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <TextBlock Text="{Binding HintLabel}" FontFamily="{StaticResource BodyFontFamily}"
+                                               FontSize="{StaticResource FontSizeMicroPill}" FontWeight="ExtraBold"
+                                               Foreground="{StaticResource SuccessBrush}" />
+                                </Border>
+                                <Border Padding="9,2" controls:PillCornerRadius.Enabled="True"
+                                        Background="{StaticResource SurfaceCardBrush}"
+                                        BorderBrush="{StaticResource SurfaceCardBorderBrush}" BorderThickness="1"
+                                        VerticalAlignment="Center"
                                         Visibility="{Binding IsOnNetworkDrive, Converter={StaticResource BoolToVisibilityConverter}}">
                                     <TextBlock Text="&#x2601; NETWORK DRIVE — can't remove from here"
                                                FontFamily="{StaticResource BodyFontFamily}"
@@ -394,7 +452,7 @@
 
                         <TextBlock Grid.Column="4"
                                    Text="{Binding LastWriteTimeUtc, Converter={StaticResource LastWriteDateConverter}}"
-                                   FontFamily="{StaticResource BodyFontFamily}" FontSize="12"
+                                   FontFamily="{StaticResource BodyFontFamily}" FontSize="12" TextAlignment="Right" LineHeight="15"
                                    Foreground="{StaticResource TextFaintBrush}"
                                    HorizontalAlignment="Right" VerticalAlignment="Center" />
 
@@ -406,6 +464,104 @@
                     </Grid>
                 </Border>
             </Border>
+            </Grid>
+        </DataTemplate>
+
+        <!--
+            Collapsible SECTION bar (Duplicates / Similar photos / … / Ignored).
+            One row kind in the single virtualized _flatRows list - clicking it
+            folds/unfolds that section by rebuilding the flat list (data only),
+            so collapse/expand stays instant no matter how many files a section
+            holds. Reads clearly as collapsible: a filled bar, a rotating
+            chevron, a coloured type dot, bold title and a live file count.
+        -->
+        <DataTemplate x:Key="SectionBarRowTemplate">
+            <Button Click="SectionHeader_Click" HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Stretch" Padding="0" BorderThickness="0"
+                    Background="Transparent" Margin="0,16,0,4"
+                    AutomationProperties.Name="{Binding AutomationLabel}">
+                <Border Background="{Binding BarFillBrush}" BorderBrush="{Binding BarBorderBrush}" BorderThickness="1"
+                        CornerRadius="{StaticResource RadiusTile}" Padding="14,11">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Ellipse Grid.Column="0" Width="11" Height="11" Fill="{Binding DotBrush}"
+                                 VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding Title}"
+                                   FontFamily="{StaticResource DisplayFontFamily}" FontSize="16"
+                                   FontWeight="Bold" Foreground="{StaticResource TextHeadingBrush}"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Text="{Binding CountLabel}"
+                                   FontFamily="{StaticResource BodyFontFamily}" FontSize="12.5"
+                                   Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
+                        <Border Grid.Column="4" Padding="9,3" controls:PillCornerRadius.Enabled="True"
+                                Background="{Binding BadgeFillBrush}" BorderBrush="{Binding BadgeBorderBrush}"
+                                BorderThickness="1" VerticalAlignment="Center" Margin="0,0,4,0"
+                                Visibility="{Binding HasBadge, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="{Binding BadgeText}" FontFamily="{StaticResource BodyFontFamily}"
+                                       FontSize="{StaticResource FontSizeMicroPill}" FontWeight="ExtraBold" Foreground="{Binding BadgeTextBrush}" />
+                        </Border>
+                        <!-- Prominent circular collapse toggle so the bar clearly
+                             reads as expandable, not just a heading. -->
+                        <Border Grid.Column="5" Width="28" Height="28" controls:PillCornerRadius.Enabled="True"
+                                Background="#1AFFFFFF" BorderBrush="#26FFFFFF" BorderThickness="1"
+                                VerticalAlignment="Center">
+                            <TextBlock Text="{Binding ChevronGlyph}" FontSize="13" FontWeight="Bold"
+                                       Foreground="{StaticResource TextBodyBrush}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </Grid>
+                </Border>
+            </Button>
+        </DataTemplate>
+
+        <!--
+            Sub-group header inside a section (a look-alike cluster, a song, or
+            the single card that caps a flat blurry/ignored list). Rounds the top
+            of its card; the group's last file row rounds the bottom.
+        -->
+        <DataTemplate x:Key="SubHeaderRowTemplate">
+            <!-- Rail + indent wrapper - see ResultsHeaderRowTemplate's comment.
+                 The card's own top margin stays on the inner Border so the rail
+                 also spans the 10px gap above it, keeping the stripe continuous
+                 between a section's clusters. -->
+            <Grid Margin="8,0,0,0" ColumnSpacing="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="3" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Rectangle Width="3" RadiusX="1.5" RadiusY="1.5" Fill="{Binding SectionRailBrush}"
+                           VerticalAlignment="Stretch" />
+            <Border Grid.Column="1" CornerRadius="18,18,0,0" Background="#09FFFFFF"
+                    BorderBrush="#12FFFFFF" BorderThickness="1,1,1,0" Margin="0,10,0,0">
+                <Border BorderThickness="0,0,0,1" BorderBrush="#0FFFFFFF" Padding="18,13">
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="{Binding Title}"
+                                   FontFamily="{StaticResource BodyFontFamily}" FontSize="14" FontWeight="Bold"
+                                   Foreground="{StaticResource TextBodyBrush}" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" />
+                        <Border Grid.Column="2" Padding="9,2" controls:PillCornerRadius.Enabled="True"
+                                Background="{Binding HintFillBrush}" BorderBrush="{Binding HintBorderBrush}"
+                                BorderThickness="1" VerticalAlignment="Center"
+                                Visibility="{Binding HasHint, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="{Binding Hint}" FontFamily="{StaticResource BodyFontFamily}"
+                                       FontSize="{StaticResource FontSizeMicroPill}" FontWeight="ExtraBold" Foreground="{Binding HintTextBrush}" />
+                        </Border>
+                    </Grid>
+                </Border>
+            </Border>
+            </Grid>
         </DataTemplate>
     </Page.Resources>
 
@@ -471,6 +627,67 @@
                                     FontSize="11.5" FontWeight="Bold" />
                         </Grid>
 
+                        <!-- SHOW: a checklist (mirrors CATEGORY) - one row per
+                             result-type section present in this scan, each with a
+                             colour dot matching its section bar and a live file
+                             count. ItemsSource filled in code-behind. -->
+                        <StackPanel x:Name="SectionFilterGroup" Spacing="9">
+                            <TextBlock Text="SHOW" Style="{StaticResource FilterSectionLabelStyle}" />
+                            <ListView x:Name="SectionSidebar" SelectionMode="None" IsItemClickEnabled="True"
+                                      ItemClick="SectionItem_Click"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                      ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                <ListView.Resources>
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="Transparent" />
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="#0AFFFFFF" />
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="#0AFFFFFF" />
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="#0AFFFFFF" />
+                                </ListView.Resources>
+                                <ListView.ItemContainerStyle>
+                                    <Style TargetType="ListViewItem">
+                                        <Setter Property="Padding" Value="6,5" />
+                                        <Setter Property="MinHeight" Value="0" />
+                                        <Setter Property="CornerRadius" Value="8" />
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    </Style>
+                                </ListView.ItemContainerStyle>
+                                <ListView.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Spacing="1" />
+                                    </ItemsPanelTemplate>
+                                </ListView.ItemsPanel>
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid ColumnSpacing="9">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Grid.Column="0" Width="16" Height="16" CornerRadius="{StaticResource RadiusCheckbox}" BorderThickness="1.5"
+                                                    VerticalAlignment="Center"
+                                                    Background="{Binding IsSelected, Converter={StaticResource ChipBackgroundConverter}}"
+                                                    BorderBrush="{Binding IsSelected, Converter={StaticResource ChipBorderConverter}}">
+                                                <TextBlock Text="&#x2713;" FontSize="9" FontWeight="Bold"
+                                                           Foreground="{StaticResource AccentLighterBrush}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                           Visibility="{Binding IsSelected, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                            </Border>
+                                            <Ellipse Grid.Column="1" Width="8" Height="8" Fill="{Binding SwatchBrush}"
+                                                     VerticalAlignment="Center"
+                                                     Visibility="{Binding HasSwatch, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                            <TextBlock Grid.Column="2" Text="{Binding Label}" FontFamily="{StaticResource BodyFontFamily}"
+                                                       FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center"
+                                                       Foreground="{Binding IsSelected, Converter={StaticResource ChipForegroundConverter}}" />
+                                            <TextBlock Grid.Column="3" Text="{Binding CountText}" FontFamily="{StaticResource MonoFontFamily}"
+                                                       FontSize="11" Foreground="#6B7699" VerticalAlignment="Center" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                        </StackPanel>
+
                         <!-- Category as a checklist with live match counts -->
                         <StackPanel Spacing="9">
                             <TextBlock Text="CATEGORY" Style="{StaticResource FilterSectionLabelStyle}" />
@@ -506,7 +723,7 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <Border Grid.Column="0" Width="16" Height="16" CornerRadius="5" BorderThickness="1.5"
+                                            <Border Grid.Column="0" Width="16" Height="16" CornerRadius="{StaticResource RadiusCheckbox}" BorderThickness="1.5"
                                                     VerticalAlignment="Center"
                                                     Background="{Binding IsSelected, Converter={StaticResource ChipBackgroundConverter}}"
                                                     BorderBrush="{Binding IsSelected, Converter={StaticResource ChipBorderConverter}}">
@@ -589,14 +806,36 @@
                         <!-- Modified -->
                         <StackPanel Spacing="8">
                             <TextBlock Text="MODIFIED" Style="{StaticResource FilterSectionLabelStyle}" />
-                            <CalendarDatePicker x:Name="ModifiedAfterPicker" PlaceholderText="from"
-                                                DateFormat="{}{year.full}-{month.integer(2)}-{day.integer(2)}"
-                                                Style="{StaticResource FilterDatePickerStyle}" HorizontalAlignment="Stretch"
-                                                DateChanged="FilterChanged" />
-                            <CalendarDatePicker x:Name="ModifiedBeforePicker" PlaceholderText="to"
-                                                DateFormat="{}{year.full}-{month.integer(2)}-{day.integer(2)}"
-                                                Style="{StaticResource FilterDatePickerStyle}" HorizontalAlignment="Stretch"
-                                                DateChanged="FilterChanged" />
+                            <Grid ColumnSpacing="2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <CalendarDatePicker x:Name="ModifiedAfterPicker" PlaceholderText="from"
+                                                    DateFormat="{}{year.full}-{month.integer(2)}-{day.integer(2)}"
+                                                    Style="{StaticResource FilterDatePickerStyle}" HorizontalAlignment="Stretch"
+                                                    DateChanged="FilterChanged" />
+                                <!-- Clears just this date (QA-19); shown only while one is set. Styled like "Clear all". -->
+                                <Button x:Name="ClearModifiedAfterButton" Grid.Column="1" Content="&#x2715;" Click="ClearModifiedAfter_Click"
+                                        Visibility="Collapsed" Background="Transparent" BorderThickness="0" Padding="6,0" MinWidth="0"
+                                        VerticalAlignment="Stretch" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
+                                        ToolTipService.ToolTip="Clear the 'from' date" AutomationProperties.Name="Clear the from date" />
+                            </Grid>
+                            <Grid ColumnSpacing="2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <CalendarDatePicker x:Name="ModifiedBeforePicker" PlaceholderText="to"
+                                                    DateFormat="{}{year.full}-{month.integer(2)}-{day.integer(2)}"
+                                                    Style="{StaticResource FilterDatePickerStyle}" HorizontalAlignment="Stretch"
+                                                    DateChanged="FilterChanged" />
+                                <!-- Clears just this date (QA-19); shown only while one is set. Styled like "Clear all". -->
+                                <Button x:Name="ClearModifiedBeforeButton" Grid.Column="1" Content="&#x2715;" Click="ClearModifiedBefore_Click"
+                                        Visibility="Collapsed" Background="Transparent" BorderThickness="0" Padding="6,0" MinWidth="0"
+                                        VerticalAlignment="Stretch" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
+                                        ToolTipService.ToolTip="Clear the 'to' date" AutomationProperties.Name="Clear the to date" />
+                            </Grid>
                         </StackPanel>
 
                         <!-- Path contains -->
@@ -662,6 +901,9 @@
                                 <MenuFlyout>
                                     <MenuFlyoutItem Text="Over 100 MB…" Click="SelectOver100Mb_Click" />
                                     <MenuFlyoutItem Text="By folder…" Click="SelectByFolder_Click" />
+                                    <MenuFlyoutItem Text="Keep best (similar photos)" Click="KeepBestSimilar_Click" />
+                                    <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem Text="Ignore selected" Click="IgnoreSelected_Click" />
                                 </MenuFlyout>
                             </Button.Flyout>
                         </Button>
@@ -729,7 +971,28 @@
                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 </Style>
             </ListView.ItemContainerStyle>
+            <!--
+                No add/reorder animations. Collapsing or filtering rebuilds the
+                flat row list wholesale; without this WinUI plays a reposition
+                transition on every realized row on each rebuild - the visible
+                lag when toggling a section.
+            -->
+            <ListView.ItemContainerTransitions>
+                <TransitionCollection />
+            </ListView.ItemContainerTransitions>
                 </ListView>
+
+                <!-- Empty state: shown by RebuildFlatRows when the current
+                     filters/SHOW selection leave nothing to list. -->
+                <StackPanel x:Name="EmptyStateText" Grid.Row="1" Visibility="Collapsed"
+                            HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6" Margin="0,0,0,60">
+                    <TextBlock Text="Nothing matches these filters" FontFamily="{StaticResource DisplayFontFamily}"
+                               FontSize="18" FontWeight="Bold" Foreground="{StaticResource TextSecondaryBrush}"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="Adjust the filters on the left, or use Clear all to start over."
+                               FontFamily="{StaticResource BodyFontFamily}" FontSize="13"
+                               Foreground="{StaticResource TextFaintBrush}" HorizontalAlignment="Center" />
+                </StackPanel>
             </Grid>
         </Grid>
 

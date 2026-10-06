@@ -44,16 +44,17 @@ public sealed class DirectoryFromPathConverter : IValueConverter
 }
 
 /// <summary>
-/// "Jun 28, 2026" - screen 2g's exact modified-date format, converted to
-/// local time so the date shown matches what Explorer (and the History
-/// screen, which already converts) show for the same file - raw UTC could
-/// disagree with both by a day near midnight.
+/// "Jun 28, 2026" over "7:34:12 PM" - the modified date plus time to the
+/// second, on two lines so it fits the rows' 90px date column. The time is
+/// what lets a user confirm "KEEP — newest" by eye: copies made on the same
+/// day all showed an identical date before. Local time, so it matches
+/// Explorer and History - raw UTC could disagree by a day near midnight.
 /// </summary>
 public sealed class LastWriteDateConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language) =>
         value is DateTime dateTime
-            ? DateTime.SpecifyKind(dateTime, DateTimeKind.Utc).ToLocalTime().ToString("MMM d, yyyy")
+            ? DateTime.SpecifyKind(dateTime, DateTimeKind.Utc).ToLocalTime().ToString("MMM d, yyyy'\n'h:mm:ss tt")
             : string.Empty;
 
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>

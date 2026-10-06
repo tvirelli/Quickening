@@ -72,7 +72,7 @@ internal static class SettingsDialog
             {
                 Style = (Style)resources["NebulaContentDialogStyle"],
                 Width = (double)resources["DialogWidthSettings"],
-                CloseButtonText = "Save",
+                CloseButtonText = "Done",
                 CloseButtonStyle = (Style)resources["PillSecondaryButtonStyle"],
                 XamlRoot = xamlRoot,
             };
@@ -87,7 +87,7 @@ internal static class SettingsDialog
                     args.Cancel = true;
                     _documentViewOpen = false;
                     d.Content = BuildMainSettingsView(resources, d);
-                    d.CloseButtonText = "Save";
+                    d.CloseButtonText = "Done";
                 }
             };
 
@@ -137,6 +137,7 @@ internal static class SettingsDialog
         var groups = new StackPanel { Spacing = 14 };
         groups.Children.Add(BuildScanningGroup(resources, dialog));
         groups.Children.Add(BuildDuplicatesGroup(resources));
+        groups.Children.Add(BuildIgnoreListGroup(resources, dialog));
         groups.Children.Add(BuildTrustedFoldersGroup(resources));
         groups.Children.Add(BuildAutomationGroup(resources));
         groups.Children.Add(BuildAboutGroup(resources, dialog));
@@ -144,6 +145,46 @@ internal static class SettingsDialog
         root.Children.Add(scroller);
 
         return root;
+    }
+
+    // ===== Ignore list group =====
+
+    private static UIElement BuildIgnoreListGroup(ResourceDictionary resources, ContentDialog dialog)
+    {
+        var stack = new StackPanel { Spacing = 10 };
+        stack.Children.Add(new TextBlock
+        {
+            Text = "Files and folders you've chosen to skip. Ignored items never appear in review or future scans.",
+            FontFamily = (FontFamily)resources["BodyFontFamily"],
+            FontSize = 12.5,
+            Foreground = (Brush)resources["TextMutedBrush"],
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        // Same recipe as the About group's "Check for updates" button so the
+        // dialog's pill buttons all read identically.
+        var button = new Button
+        {
+            Content = "Manage Ignored Files",
+            Background = (Brush)resources["SurfaceCardBrush"],
+            BorderBrush = (Brush)resources["SurfaceCardBorderBrush"],
+            BorderThickness = new Thickness(1),
+            Foreground = (Brush)resources["TextSecondaryBrush"],
+            FontFamily = (FontFamily)resources["DisplayFontFamily"],
+            FontSize = 13,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            Padding = new Thickness(14, 8, 14, 8),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        Controls.PillCornerRadius.SetEnabled(button, true);
+        button.Click += (_, _) =>
+        {
+            dialog.Hide();
+            ((MainWindow)App.MainWindowInstance!).ShowManageIgnored();
+        };
+        stack.Children.Add(button);
+
+        return BuildGroupCard(resources, "Ignore list", stack);
     }
 
     // ===== Scanning group =====
@@ -755,7 +796,7 @@ internal static class SettingsDialog
         {
             _documentViewOpen = false;
             dialog.Content = BuildMainSettingsView(resources, dialog);
-            dialog.CloseButtonText = "Save";
+            dialog.CloseButtonText = "Done";
         };
         titleRow.Children.Add(backButton);
         titleRow.Children.Add(new TextBlock
@@ -879,6 +920,9 @@ internal static class SettingsDialog
             OffContent = string.Empty,
             VerticalAlignment = VerticalAlignment.Top,
         };
+        // Named for screen readers - the visible title is a separate TextBlock,
+        // so the switch itself was announced unlabeled (QA-6).
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toggle, title);
         toggle.Toggled += (_, _) => onToggled(toggle.IsOn);
         Grid.SetColumn(toggle, 1);
         grid.Children.Add(toggle);
@@ -901,7 +945,14 @@ internal static class SettingsDialog
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var textStack = new StackPanel { Spacing = 3 };
-        var titleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        // A Grid, not a horizontal StackPanel: a StackPanel measures its
+        // children with infinite width, so a long title ("Allow scanning
+        // protected system paths") pushed the badge past the column edge and
+        // it was clipped to nothing (QA-15). Here the title wraps and the badge
+        // keeps its own Auto column.
+        var titleRow = new Grid { ColumnSpacing = 8 };
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         titleRow.Children.Add(new TextBlock
         {
             Text = title,
@@ -909,14 +960,17 @@ internal static class SettingsDialog
             FontSize = 15,
             FontWeight = FontWeights.Bold,
             Foreground = (Brush)resources["TextBodyBrush"],
+            TextWrapping = TextWrapping.Wrap,
         });
-        titleRow.Children.Add(new Border
+        // Warning* tokens (these hexes were byte-for-byte duplicates of them),
+        // and the shared pill helper - CornerRadius=999 bulges into an ellipse
+        // on short elements in WinUI (it doesn't clamp to height/2 like CSS).
+        var badge = new Border
         {
             Padding = new Thickness(9, 2, 9, 2),
-            Background = new SolidColorBrush(Color.FromArgb(0x1F, 0xFF, 0x8A, 0x5C)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(0x66, 0xFF, 0x8A, 0x5C)),
+            Background = (Brush)resources["WarningFillBrush"],
+            BorderBrush = (Brush)resources["WarningFillBorderBrush"],
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(999),
             VerticalAlignment = VerticalAlignment.Center,
             Child = new TextBlock
             {
@@ -924,9 +978,12 @@ internal static class SettingsDialog
                 FontFamily = (FontFamily)resources["BodyFontFamily"],
                 FontSize = 10,
                 FontWeight = FontWeights.ExtraBold,
-                Foreground = new SolidColorBrush(Color.FromArgb(0xFF, 0xFF, 0x8A, 0x5C)),
+                Foreground = (Brush)resources["WarningBrush"],
             },
-        });
+        };
+        Controls.PillCornerRadius.SetEnabled(badge, true);
+        Grid.SetColumn(badge, 1);
+        titleRow.Children.Add(badge);
         textStack.Children.Add(titleRow);
         textStack.Children.Add(new TextBlock
         {
@@ -946,6 +1003,9 @@ internal static class SettingsDialog
             OffContent = string.Empty,
             VerticalAlignment = VerticalAlignment.Top,
         };
+        // Named for screen readers - the visible title is a separate TextBlock,
+        // so the switch itself was announced unlabeled (QA-6).
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toggle, title);
         Grid.SetColumn(toggle, 1);
         grid.Children.Add(toggle);
 
@@ -996,6 +1056,7 @@ internal static class SettingsDialog
                 {
                     Content = "Remove",
                     Padding = new Thickness(10, 4, 10, 4),
+                    FontFamily = (FontFamily)resources["BodyFontFamily"],
                     FontSize = 12,
                     FontWeight = FontWeights.Bold,
                     Background = new SolidColorBrush(Colors.Transparent),
@@ -1032,6 +1093,7 @@ internal static class SettingsDialog
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Center,
                 Padding = new Thickness(0, 11, 0, 11),
+                FontFamily = (FontFamily)resources["BodyFontFamily"],
                 FontSize = 13,
                 FontWeight = FontWeights.SemiBold,
                 Background = new SolidColorBrush(Colors.Transparent),

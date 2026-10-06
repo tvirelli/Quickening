@@ -25,6 +25,28 @@ public sealed class SelectableFile : INotifyPropertyChanged
     public required MimeCategory Category { get; init; }
     public required DateTime LastWriteTimeUtc { get; init; }
 
+    // Image pixel dimensions (F3). Null for non-images / when the similarity
+    // pass didn't run. Drive the look-alike "best copy" pick and the
+    // resolution shown on similarity rows.
+    public int? PixelWidth { get; init; }
+    public int? PixelHeight { get; init; }
+
+    // "4032×3024" for display, or "" when unknown.
+    public string ResolutionLabel => PixelWidth is { } w && PixelHeight is { } h ? $"{w}×{h}" : "";
+
+    // width*height, 0 when unknown - the "best copy" sort key (highest first).
+    public long PixelCount => PixelWidth is { } w && PixelHeight is { } h ? (long)w * h : 0;
+
+    // Laplacian-variance sharpness from the image pass (higher = sharper).
+    // Null for non-images or when it wasn't computed. The "best copy" pick's
+    // second criterion, after resolution.
+    public double? Sharpness { get; init; }
+
+    // Screen readers announce a ListView row by its data item's ToString();
+    // without this every file row was read as
+    // "Quickening.App.ViewModels.SelectableFile" (QA-6).
+    public override string ToString() => $"{System.IO.Path.GetFileName(Path)}, in {System.IO.Path.GetDirectoryName(Path)}";
+
     // default(DateTime) = "unknown" for any construction that doesn't set it;
     // only the duplicate/similarity maps carry the real value from FileRecord.
     // Read by DuplicateGroupViewModel.IsLikelyCreatedTogether.
@@ -67,6 +89,28 @@ public sealed class SelectableFile : INotifyPropertyChanged
         }
     }
 
+    private bool _isIgnored;
+
+    // True when this file is on the user's Ignore list. Bindable so the row's
+    // dimming + IGNORED badge update the instant it's ignored / un-ignored.
+    public bool IsIgnored
+    {
+        get => _isIgnored;
+        set
+        {
+            _isIgnored = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsIgnored)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelectable)));
+        }
+    }
+
+    // Drives the row CheckBox's IsEnabled: network-drive files can't be
+    // removed from here (SendToRecycleBin refuses them), and ignored files
+    // must never be selectable for deletion - the Ignored section reuses the
+    // same row template, so without this its checkboxes would LOOK live while
+    // selection/deletion (rightly) exclude them.
+    public bool IsSelectable => !IsOnNetworkDrive && !IsIgnored;
+
     // Backs the "KEEP" pill in ResultsPage/Media Preview (Task 8/10) - marks
     // whichever file in this group has the newest LastWriteTimeUtc. Computed
     // once per ApplyFilters() call (see ResultsViewModel.ApplyFilters) and
@@ -90,6 +134,16 @@ public sealed class SelectableFile : INotifyPropertyChanged
     // similar (not identical) photos have no single correct answer
     // (new-screens 4k: "never auto-selected").
     public string? HintLabel { get; set; }
+
+    // Visibility source for the hint pill - HintLabel is assigned at load time
+    // (before any row realizes), so a plain computed property suffices.
+    public bool HasHintLabel => !string.IsNullOrEmpty(HintLabel);
+
+    // The owning section's left-edge rail colour on the Results page (stamped
+    // by ResultsPage.BuildSectionChildren before every rebuild, so it's set
+    // before any row realizes - a plain property is enough). Null on pages
+    // without sections (Large Files), which simply draw no rail.
+    public Microsoft.UI.Xaml.Media.Brush? SectionRailBrush { get; set; }
 
     // Backs the per-row corner-rounding/bottom-margin in ResultsPage.xaml -
     // the group "card" look (rounded corners, one outer border, a gap
@@ -300,6 +354,30 @@ public sealed class SimilarityGroupViewModel : INotifyPropertyChanged
 }
 
 /// <summary>
+/// One "duplicate songs" group (F10) - the same track in several encodings. The
+/// label mutates as copies are removed, so it raises PropertyChanged like
+/// SimilarityGroupViewModel.
+/// </summary>
+public sealed class MusicGroupViewModel : INotifyPropertyChanged
+{
+    private string _songLabel = "";
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public required string SongLabel
+    {
+        get => _songLabel;
+        set
+        {
+            _songLabel = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SongLabel)));
+        }
+    }
+
+    public required ObservableCollection<SelectableFile> Files { get; init; }
+}
+
+/// <summary>
 /// Reported once per file by ResultsViewModel.DeleteSelectedAsync. A named
 /// record rather than a raw tuple, matching the one other IProgress&lt;T&gt;
 /// precedent in this codebase (Quickening.Core.Orchestration.ScanProgress).
@@ -324,6 +402,20 @@ public sealed class ResultsViewModel
     // Duplicates filter row (category/size/date/path/copies) has no visual
     // presence in that section at all, so there's nothing to re-apply.
     public ObservableCollection<SimilarityGroupViewModel> SimilarityGroups { get; } = new();
+
+    // "Blurry photos" review list (F9) - a flat set of likely-blurry images,
+    // blurriest first. Never auto-selected; the user reviews and ticks what to
+    // remove. Selection/size/deletion flow through AllSelectableFiles() like the
+    // other collections.
+    public ObservableCollection<SelectableFile> BlurryPhotos { get; } = new();
+
+    // "Duplicate songs" groups (F10) - same track encoded differently. Best copy
+    // (highest bitrate) first, tagged BEST QUALITY. Never auto-selected.
+    public ObservableCollection<MusicGroupViewModel> MusicGroups { get; } = new();
+
+    // "Duplicate videos" groups (F11) - near-duplicate clips. Reuses
+    // SimilarityGroupViewModel (they carry a match %). Never auto-selected.
+    public ObservableCollection<SimilarityGroupViewModel> VideoGroups { get; } = new();
 
     public HashSet<MimeCategory> CategoryFilter { get; } = new();
     public long? MinSizeBytes { get; set; }
@@ -410,17 +502,18 @@ public sealed class ResultsViewModel
                 Category = f.Category,
                 LastWriteTimeUtc = f.LastWriteTimeUtc,
                 CreationTimeUtc = f.CreationTimeUtc,
+                PixelWidth = f.PixelWidth,
+                PixelHeight = f.PixelHeight,
+                Sharpness = f.Sharpness,
             }).ToList();
 
-            // Hint pill (4k's "SHARPER · LARGER") - simplified to file size
-            // alone, since no resolution/sharpness metric is computed
-            // anywhere in this pipeline; fabricating "sharper" without
-            // actually measuring it would be dishonest. A tie gets no hint
-            // at all rather than an arbitrary pick.
-            var biggest = files.OrderByDescending(f => f.SizeBytes).First();
-            if (files.Count(f => f.SizeBytes == biggest.SizeBytes) == 1)
+            // Hint pill (4k's "SHARPER · LARGER"): names the criterion that
+            // actually separated the best copy from the rest. A full tie gets
+            // no hint rather than an arbitrary pick.
+            var (best, reason) = ChooseBestCopy(files);
+            if (best is not null && reason is not null)
             {
-                biggest.HintLabel = "BIGGER FILE";
+                best.HintLabel = reason;
             }
 
             SimilarityGroups.Add(new SimilarityGroupViewModel
@@ -429,6 +522,88 @@ public sealed class ResultsViewModel
                 MatchPercent = group.MatchPercent,
                 Files = new ObservableCollection<SelectableFile>(files),
             });
+        }
+    }
+
+    // A copy must be at least this much sharper to win on sharpness: the score
+    // is noisy, and JPEG blocking can nudge a re-saved copy within a few
+    // percent of its original (903.6 vs 885.9 in the QA arena) - that is a
+    // tie, not a reason to keep the re-encode.
+    private const double ClearlySharperRatio = 1.15;
+
+    // The "best" copy in a look-alike group, by narrowing the candidates one
+    // criterion at a time: highest resolution, then clearly sharper, then
+    // original format (RAW > lossless > lossy), then largest file. The reason
+    // is the criterion that left a single winner - null on a full tie, in which
+    // case Best is still the first remaining candidate (keep-best always keeps
+    // exactly one) but the UI shows no hint. The old rule (resolution, then
+    // bigger file) kept a 117 KB blurry PNG over its sharp 7 KB original and a
+    // quality-35 JPEG over the lossless original.
+    private static (SelectableFile? Best, string? Reason) ChooseBestCopy(IReadOnlyList<SelectableFile> files)
+    {
+        if (files.Count < 2)
+        {
+            return (null, null);
+        }
+
+        var candidates = files.ToList();
+
+        string? Narrow(Func<List<SelectableFile>, List<SelectableFile>> keep, string reason)
+        {
+            var kept = keep(candidates);
+            if (kept.Count == 0 || kept.Count == candidates.Count)
+            {
+                return null;
+            }
+
+            candidates = kept;
+            return candidates.Count == 1 ? reason : null;
+        }
+
+        var reason =
+            Narrow(c => { var max = c.Max(f => f.PixelCount); return max > 0 ? c.Where(f => f.PixelCount == max).ToList() : c; }, "HIGHER RES")
+            ?? Narrow(c => c.All(f => f.Sharpness is not null)
+                ? c.Where(f => f.Sharpness * ClearlySharperRatio >= c.Max(x => x.Sharpness!.Value)).ToList()
+                : c, "SHARPER")
+            ?? Narrow(c => { var max = c.Max(f => FormatRank(f.Path)); return c.Where(f => FormatRank(f.Path) == max).ToList(); }, "ORIGINAL FORMAT")
+            ?? Narrow(c => { var max = c.Max(f => f.SizeBytes); return c.Where(f => f.SizeBytes == max).ToList(); }, "BIGGER FILE");
+
+        return (candidates[0], reason);
+    }
+
+    // RAW camera output beats lossless, which beats lossy re-encodes. Unknown
+    // extensions (and video) rank equal, so the criterion is skipped for them.
+    private static int FormatRank(string path) => System.IO.Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".dng" or ".cr2" or ".cr3" or ".nef" or ".arw" or ".orf" or ".rw2" or ".raf" or ".raw" => 3,
+        ".png" or ".tif" or ".tiff" or ".bmp" => 2,
+        ".jpg" or ".jpeg" or ".heic" or ".heif" or ".webp" or ".avif" => 1,
+        _ => 0,
+    };
+
+    // F3 keep-best: for each look-alike group, select every copy EXCEPT the
+    // best (highest resolution, then largest). A MANUAL action - similar photos
+    // are never auto-selected (4k), so the user opts into this explicitly.
+    // Always keeps exactly one (the best, or the first when truly tied), and
+    // never selects a network-drive file (SendToRecycleBin refuses those).
+    public void SelectAllButBestInSimilarityGroups()
+    {
+        foreach (var group in SimilarityGroups)
+        {
+            // Ignored files sit outside the keep-best decision entirely: they
+            // must be neither chosen as "best" (which would tick every visible
+            // file) nor selected for removal.
+            var files = group.Files.Where(f => !IgnoreService.IsIgnored(f.Path)).ToList();
+            if (files.Count < 2)
+            {
+                continue;
+            }
+
+            var best = ChooseBestCopy(files).Best!;
+            foreach (var file in files)
+            {
+                file.IsSelected = !ReferenceEquals(file, best) && !file.IsOnNetworkDrive;
+            }
         }
     }
 
@@ -458,12 +633,13 @@ public sealed class ResultsViewModel
 
             var rule = App.Settings.PreferredKeepRule;
             var keeper = ChooseKeeper(visibleFiles, rule);
-            var keepLabel = KeepLabelFor(rule);
+            var keepLabel = KeepLabelFor(rule, keeper, visibleFiles);
             foreach (var file in visibleFiles)
             {
                 file.IsKeepRecommended = ReferenceEquals(file, keeper);
                 file.KeepRecommendedLabel = keepLabel;
                 file.IsLastInGroup = ReferenceEquals(file, visibleFiles[^1]);
+                file.IsIgnored = IgnoreService.IsIgnored(file.Path);
             }
 
             Groups.Add(new DuplicateGroupViewModel
@@ -476,6 +652,11 @@ public sealed class ResultsViewModel
 
     private bool MatchesFilters(SelectableFile file)
     {
+        if (IgnoreService.IsIgnored(file.Path))
+        {
+            return false;
+        }
+
         if (CategoryFilter.Count > 0 && !CategoryFilter.Contains(file.Category))
         {
             return false;
@@ -548,26 +729,189 @@ public sealed class ResultsViewModel
             .ToList();
 
     /// <summary>
-    /// Sums SizeBytes across every currently-selected file (Duplicates and
-    /// Looks-alike photos both), for the bottom-bar "X selected" stat in
-    /// ResultsPage.
+    /// Sums SizeBytes across every currently-selected file, for the bottom-bar
+    /// "X selected" stat in ResultsPage. Distinct by path: the same physical
+    /// file can appear in two sections (e.g. blurry AND similar) as two
+    /// SelectableFile instances, and counting it twice overstated the stat and
+    /// the confirm dialog.
     /// </summary>
     public long GetSelectedSizeBytes() =>
-        AllSelectableFiles().Where(f => f.IsSelected).Sum(f => f.SizeBytes);
+        AllSelectableFiles()
+            .Where(f => f.IsSelected)
+            .GroupBy(f => f.Path, StringComparer.OrdinalIgnoreCase)
+            .Sum(g => g.First().SizeBytes);
 
     /// <summary>
-    /// The paths of every currently-selected file (Duplicates and
-    /// Looks-alike photos both) - callers capture this BEFORE
+    /// The paths of every currently-selected file (distinct - see
+    /// GetSelectedSizeBytes) - callers capture this BEFORE
     /// DeleteSelectedAsync runs (which removes files from both collections
     /// as it processes them) when they need to know afterward exactly which
     /// paths a since-completed removal touched (e.g. the Undo toast on
     /// Celebration - see ResultsPage.xaml.cs's RemoveSelectedFilesAsync).
     /// </summary>
     public IReadOnlyList<string> GetSelectedFilePaths() =>
-        AllSelectableFiles().Where(f => f.IsSelected).Select(f => f.Path).ToList();
+        AllSelectableFiles()
+            .Where(f => f.IsSelected)
+            .Select(f => f.Path)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
+    // The single choke point for selection, stats and deletion. Ignored files
+    // are EXCLUDED here: unlike Groups (rebuilt ignore-filtered by
+    // ApplyFilters), the similarity/blurry/music/video collections are loaded
+    // once and never re-filtered, so without this check a hidden ignored file
+    // could be swept up by Select All / Invert and then DELETED - the one
+    // thing Ignore promises will never happen. Checked live against
+    // IgnoreService (an O(1) lookup) rather than the stamped IsIgnored flag so
+    // it can never act on a stale stamp.
     private IEnumerable<SelectableFile> AllSelectableFiles() =>
-        Groups.SelectMany(g => g.Files).Concat(SimilarityGroups.SelectMany(g => g.Files));
+        Groups.SelectMany(g => g.Files)
+            .Concat(SimilarityGroups.SelectMany(g => g.Files))
+            .Concat(BlurryPhotos)
+            .Concat(MusicGroups.SelectMany(g => g.Files))
+            .Concat(VideoGroups.SelectMany(g => g.Files))
+            .Where(f => !IgnoreService.IsIgnored(f.Path));
+
+    /// <summary>
+    /// Clears the selection (and stale KEEP recommendation) of every file that
+    /// is now on the ignore list, across ALL sections including the raw
+    /// duplicate source. Called after any ignore-list mutation: a file the
+    /// user checked and THEN ignored must never ride its leftover checkmark
+    /// into Remove Selected.
+    /// </summary>
+    public void ClearIgnoredSelections()
+    {
+        var all = _allGroups.SelectMany(g => g)
+            .Concat(SimilarityGroups.SelectMany(g => g.Files))
+            .Concat(BlurryPhotos)
+            .Concat(MusicGroups.SelectMany(g => g.Files))
+            .Concat(VideoGroups.SelectMany(g => g.Files));
+
+        foreach (var file in all)
+        {
+            if (IgnoreService.IsIgnored(file.Path))
+            {
+                file.IsSelected = false;
+                file.IsKeepRecommended = false;
+            }
+        }
+    }
+
+    /// <summary>Every distinct file found in this scan that the user has
+    /// ignored - the source for the results page's "Ignored" section. Draws
+    /// from the RAW duplicate groups (Groups is already ignore-filtered) plus
+    /// the un-filtered similarity/video/music/blurry collections.</summary>
+    public IEnumerable<SelectableFile> IgnoredFilesInScan()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var all = _allGroups.SelectMany(g => g)
+            .Concat(SimilarityGroups.SelectMany(g => g.Files))
+            .Concat(VideoGroups.SelectMany(g => g.Files))
+            .Concat(MusicGroups.SelectMany(g => g.Files))
+            .Concat(BlurryPhotos);
+
+        foreach (var file in all)
+        {
+            if (IgnoreService.IsIgnored(file.Path) && seen.Add(file.Path))
+            {
+                yield return file;
+            }
+        }
+    }
+
+    /// <summary>Distinct paths of every checked file across all sections - for
+    /// the "Ignore selected" action.</summary>
+    public IReadOnlyList<string> SelectedFilePaths() =>
+        AllSelectableFiles().Where(f => f.IsSelected).Select(f => f.Path).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    /// <summary>
+    /// Loads the near-duplicate video groups (F11). Best copy (highest
+    /// resolution, then largest) is tagged. Never auto-selected.
+    /// </summary>
+    public void LoadVideoGroups(IReadOnlyList<Quickening.Core.Similarity.VideoSimilarityEngine.VideoGroup> videoGroups)
+    {
+        VideoGroups.Clear();
+        foreach (var group in videoGroups)
+        {
+            var files = group.Files.Select(f => new SelectableFile
+            {
+                Path = f.Path,
+                SizeBytes = f.SizeBytes,
+                Category = f.Category,
+                LastWriteTimeUtc = f.LastWriteTimeUtc,
+                CreationTimeUtc = f.CreationTimeUtc,
+                PixelWidth = f.PixelWidth,
+                PixelHeight = f.PixelHeight,
+            }).ToList();
+
+            var (best, reason) = ChooseBestCopy(files);
+            if (best is not null && reason is not null)
+            {
+                best.HintLabel = reason;
+            }
+
+            VideoGroups.Add(new SimilarityGroupViewModel
+            {
+                GroupLabel = files.Count == 1 ? "1 similar video" : $"{files.Count} similar videos",
+                MatchPercent = group.MatchPercent,
+                Files = new ObservableCollection<SelectableFile>(files),
+            });
+        }
+    }
+
+    /// <summary>
+    /// Loads the same-song groups (F10). Copies arrive best-first (highest
+    /// bitrate); the best one is tagged BEST QUALITY. Never auto-selected.
+    /// </summary>
+    public void LoadMusicGroups(IReadOnlyList<Quickening.Core.Audio.AudioDuplicateEngine.MusicGroup> musicGroups)
+    {
+        MusicGroups.Clear();
+        foreach (var group in musicGroups)
+        {
+            var files = group.Copies.Select(c => new SelectableFile
+            {
+                Path = c.File.Path,
+                SizeBytes = c.File.SizeBytes,
+                Category = c.File.Category,
+                LastWriteTimeUtc = c.File.LastWriteTimeUtc,
+                CreationTimeUtc = c.File.CreationTimeUtc,
+            }).ToList();
+
+            if (files.Count > 0)
+            {
+                files[0].HintLabel = "BEST QUALITY";
+            }
+
+            MusicGroups.Add(new MusicGroupViewModel
+            {
+                SongLabel = group.SongLabel,
+                Files = new ObservableCollection<SelectableFile>(files),
+            });
+        }
+    }
+
+    /// <summary>
+    /// Loads the likely-blurry photos (F9) as a flat, never-auto-selected review
+    /// list. Carries pixel dimensions so the row can show resolution, matching
+    /// the look-alike rows.
+    /// </summary>
+    public void LoadBlurryPhotos(IReadOnlyList<Quickening.Core.Models.FileRecord> blurry)
+    {
+        BlurryPhotos.Clear();
+        foreach (var f in blurry)
+        {
+            BlurryPhotos.Add(new SelectableFile
+            {
+                Path = f.Path,
+                SizeBytes = f.SizeBytes,
+                Category = f.Category,
+                LastWriteTimeUtc = f.LastWriteTimeUtc,
+                CreationTimeUtc = f.CreationTimeUtc,
+                PixelWidth = f.PixelWidth,
+                PixelHeight = f.PixelHeight,
+            });
+        }
+    }
 
     /// <summary>
     /// Sends every currently-selected file to the Recycle Bin, reporting
@@ -611,7 +955,10 @@ public sealed class ResultsViewModel
             {
                 try
                 {
-                    foreach (var file in group.Files.Where(f => f.IsSelected).ToList())
+                    // !IsIgnored: last-line defense, same as every other section's
+                    // loop below. Groups is rebuilt ignore-filtered by every
+                    // ignore action today, but this loop must not depend on that.
+                    foreach (var file in group.Files.Where(f => f.IsSelected && !IgnoreService.IsIgnored(f.Path)).ToList())
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
@@ -711,9 +1058,25 @@ public sealed class ResultsViewModel
             {
                 try
                 {
-                    foreach (var file in group.Files.Where(f => f.IsSelected).ToList())
+                    // !IsIgnored: last-line defense - an ignored file must never
+                    // be deleted even if a stale IsSelected survived (the same
+                    // guard appears on every non-duplicates loop below; Groups
+                    // itself is already rebuilt ignore-filtered).
+                    foreach (var file in group.Files.Where(f => f.IsSelected && !IgnoreService.IsIgnored(f.Path)).ToList())
                     {
                         cancellationToken.ThrowIfCancellationRequested();
+
+                        // Already recycled via another section this batch (the
+                        // same physical file can appear in two sections as two
+                        // instances) - skip, and still count it toward progress
+                        // so the bar can reach N/N.
+                        if (!File.Exists(file.Path))
+                        {
+                            group.Files.Remove(file);
+                            processed++;
+                            progress?.Report(new DeleteProgress(processed, totalFiles, file.Path));
+                            continue;
+                        }
 
                         try
                         {
@@ -752,6 +1115,162 @@ public sealed class ResultsViewModel
                     else
                     {
                         group.GroupLabel = group.Files.Count == 1 ? "1 similar photo" : $"{group.Files.Count} similar photos";
+                    }
+                }
+            }
+
+            // Same delete loop over the Blurry-photos review list (F9). Flat, so
+            // no group-prune step. A file already recycled via another section
+            // this batch (a blurry photo that was also a duplicate/look-alike the
+            // user ticked) is skipped, not re-deleted or counted as failed.
+            foreach (var file in BlurryPhotos.Where(f => f.IsSelected && !IgnoreService.IsIgnored(f.Path)).ToList())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (!File.Exists(file.Path))
+                {
+                    BlurryPhotos.Remove(file);
+                    processed++;
+                    progress?.Report(new DeleteProgress(processed, totalFiles, file.Path));
+                    continue;
+                }
+
+                try
+                {
+                    await Task.Run(() => _recycleBinService.SendToRecycleBin(file.Path, file.SizeBytes, file.LastWriteTimeUtc));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    failed.Add(file.Path);
+                    processed++;
+                    progress?.Report(new DeleteProgress(processed, totalFiles, file.Path));
+                    continue;
+                }
+
+                try
+                {
+                    _store?.RecordTrashedFile(file.Path, recycleBinPath: null, file.SizeBytes, removalBatchId);
+                    _store?.RemoveFileRecord(file.Path);
+                }
+                catch (Microsoft.Data.Sqlite.SqliteException ex)
+                {
+                    App.Logger?.LogError("Failed to record trashed file", ex);
+                }
+
+                bytesRemoved += file.SizeBytes;
+                BlurryPhotos.Remove(file);
+                processed++;
+                progress?.Report(new DeleteProgress(processed, totalFiles, file.Path));
+            }
+
+            // Same delete/prune loop over the Duplicate-songs groups (F10).
+            foreach (var group in MusicGroups.ToList())
+            {
+                try
+                {
+                    foreach (var file in group.Files.Where(f => f.IsSelected && !IgnoreService.IsIgnored(f.Path)).ToList())
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        if (!File.Exists(file.Path))
+                        {
+                            group.Files.Remove(file);
+                            processed++;
+                            progress?.Report(new DeleteProgress(processed, totalFiles, file.Path));
+                            continue;
+                        }
+
+                        try
+                        {
+                            await Task.Run(() => _recycleBinService.SendToRecycleBin(file.Path, file.SizeBytes, file.LastWriteTimeUtc));
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                        {
+                            failed.Add(file.Path);
+                            processed++;
+                            progress?.Report(new DeleteProgress(processed, totalFiles, file.Path));
+                            continue;
+                        }
+
+                        try
+                        {
+                            _store?.RecordTrashedFile(file.Path, recycleBinPath: null, file.SizeBytes, removalBatchId);
+                            _store?.RemoveFileRecord(file.Path);
+                        }
+                        catch (Microsoft.Data.Sqlite.SqliteException ex)
+                        {
+                            App.Logger?.LogError("Failed to record trashed file", ex);
+                        }
+
+                        bytesRemoved += file.SizeBytes;
+                        group.Files.Remove(file);
+                        processed++;
+                        progress?.Report(new DeleteProgress(processed, totalFiles, file.Path));
+                    }
+                }
+                finally
+                {
+                    if (group.Files.Count < 2)
+                    {
+                        MusicGroups.Remove(group);
+                    }
+                }
+            }
+
+            // Same delete/prune loop over the Duplicate-videos groups (F11).
+            foreach (var group in VideoGroups.ToList())
+            {
+                try
+                {
+                    foreach (var file in group.Files.Where(f => f.IsSelected && !IgnoreService.IsIgnored(f.Path)).ToList())
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        if (!File.Exists(file.Path))
+                        {
+                            group.Files.Remove(file);
+                            processed++;
+                            progress?.Report(new DeleteProgress(processed, totalFiles, file.Path));
+                            continue;
+                        }
+
+                        try
+                        {
+                            await Task.Run(() => _recycleBinService.SendToRecycleBin(file.Path, file.SizeBytes, file.LastWriteTimeUtc));
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                        {
+                            failed.Add(file.Path);
+                            processed++;
+                            progress?.Report(new DeleteProgress(processed, totalFiles, file.Path));
+                            continue;
+                        }
+
+                        try
+                        {
+                            _store?.RecordTrashedFile(file.Path, recycleBinPath: null, file.SizeBytes, removalBatchId);
+                            _store?.RemoveFileRecord(file.Path);
+                        }
+                        catch (Microsoft.Data.Sqlite.SqliteException ex)
+                        {
+                            App.Logger?.LogError("Failed to record trashed file", ex);
+                        }
+
+                        bytesRemoved += file.SizeBytes;
+                        group.Files.Remove(file);
+                        processed++;
+                        progress?.Report(new DeleteProgress(processed, totalFiles, file.Path));
+                    }
+                }
+                finally
+                {
+                    if (group.Files.Count < 2)
+                    {
+                        VideoGroups.Remove(group);
+                    }
+                    else
+                    {
+                        group.GroupLabel = group.Files.Count == 1 ? "1 similar video" : $"{group.Files.Count} similar videos";
                     }
                 }
             }
@@ -870,12 +1389,29 @@ public sealed class ResultsViewModel
         _ => files.OrderByDescending(f => f.LastWriteTimeUtc).First(),
     };
 
-    private static string KeepLabelFor(KeepRule rule) => rule switch
+    // "KEEP — newest" etc., or plain "KEEP" when the rule didn't really
+    // decide: rows show times to the second, so copies made in one go all
+    // read e.g. 8:08:16 PM and calling one "newest" (won on fractions of a
+    // second) looked arbitrary. Same for equal-length paths.
+    private static string KeepLabelFor(KeepRule rule, SelectableFile keeper, IReadOnlyList<SelectableFile> files)
     {
-        KeepRule.Oldest => "KEEP — oldest",
-        KeepRule.ShortestPath => "KEEP — shortest path",
-        _ => "KEEP — newest",
-    };
+        static long Second(DateTime t) => t.Ticks / TimeSpan.TicksPerSecond;
+
+        var tied = rule switch
+        {
+            KeepRule.ShortestPath => files.Any(f => !ReferenceEquals(f, keeper) && f.Path.Length == keeper.Path.Length),
+            _ => files.Any(f => !ReferenceEquals(f, keeper) && Second(f.LastWriteTimeUtc) == Second(keeper.LastWriteTimeUtc)),
+        };
+
+        return tied
+            ? "KEEP"
+            : rule switch
+            {
+                KeepRule.Oldest => "KEEP — oldest",
+                KeepRule.ShortestPath => "KEEP — shortest path",
+                _ => "KEEP — newest",
+            };
+    }
 
     // Network-drive files (4i) can never be selected via any mass-select
     // rule - SendToRecycleBin refuses to delete them outright, so letting a

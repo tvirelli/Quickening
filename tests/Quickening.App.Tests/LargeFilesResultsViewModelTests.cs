@@ -112,4 +112,22 @@ public class LargeFilesResultsViewModelTests
         Assert.True(viewModel.Files.Single(f => f.Path == @"C:\local.bin").IsSelected);
         Assert.False(viewModel.Files.Single(f => f.Path == @"\\nas\photos\remote.bin").IsSelected);
     }
+
+    [Fact]
+    public void ApplyFilters_ByModifiedBefore_HidesFilesNewerThanCutoff()
+    {
+        var viewModel = new LargeFilesResultsViewModel(new FakeRecycleBinService());
+        viewModel.LoadFiles(new[]
+        {
+            new SelectableFile { Path = @"C:\old.bin", SizeBytes = 100, Category = MimeCategory.Other, LastWriteTimeUtc = DateTime.UtcNow.AddYears(-2) },
+            new SelectableFile { Path = @"C:\recent.bin", SizeBytes = 100, Category = MimeCategory.Other, LastWriteTimeUtc = DateTime.UtcNow.AddDays(-1) },
+        });
+
+        // "Older than 1 year": keep only files last modified on or before the cutoff.
+        viewModel.ModifiedBefore = DateTime.UtcNow.AddYears(-1);
+        viewModel.ApplyFilters();
+
+        Assert.Single(viewModel.Files);
+        Assert.Equal(@"C:\old.bin", viewModel.Files[0].Path);
+    }
 }

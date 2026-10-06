@@ -99,7 +99,7 @@ public sealed partial class HistoryPage : Page
 
         var statsText = new TextBlock
         {
-            Text = $"{session.FilesRemoved} files · {FileSizeFormatter.Format(session.BytesRemoved)}",
+            Text = $"{session.FilesRemoved} file{(session.FilesRemoved == 1 ? "" : "s")} · {FileSizeFormatter.Format(session.BytesRemoved)}", // QA-17: not "1 files"
             FontFamily = (FontFamily)resources["BodyFontFamily"],
             FontSize = 12.5,
             FontWeight = FontWeights.Bold,

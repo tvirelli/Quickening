@@ -80,7 +80,7 @@ internal static class EmptyRecycleBinDialog
         });
         statGrid.Children.Add(new TextBlock
         {
-            Text = $"{itemCount:N0} files · {FileSizeFormatter.Format(totalSizeBytes)}",
+            Text = $"{itemCount:N0} file{(itemCount == 1 ? "" : "s")} · {FileSizeFormatter.Format(totalSizeBytes)}",
             FontFamily = (FontFamily)resources["DisplayFontFamily"],
             FontSize = 16,
             FontWeight = FontWeights.Bold,

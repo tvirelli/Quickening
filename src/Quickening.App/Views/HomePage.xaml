@@ -48,7 +48,18 @@
                 width, so this isn't a new/uncounted-for size.
             -->
             <Button Click="FolderTile_Click" Background="Transparent" BorderThickness="0" Padding="8,8,6,0"
+                    PointerEntered="Tile_PointerEntered" PointerExited="Tile_PointerExited"
                     HorizontalContentAlignment="Stretch" AutomationProperties.Name="{Binding Name}">
+                <!-- The tile's padding is asymmetric (room for the top-right checkmark
+                     badge), so a button-level hover fill sits off-centre. Suppress it
+                     and use the qkTileHover overlay below, which fills the tile Border
+                     exactly (same size + 20px radius). -->
+                <Button.Resources>
+                    <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="Transparent" />
+                    <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="Transparent" />
+                </Button.Resources>
                 <Grid Width="218">
                     <Border CornerRadius="20" Padding="18"
                             Background="{Binding IsSelected, Converter={StaticResource TileFillConverter}}"
@@ -78,14 +89,28 @@
                         <TextBlock Text="&#x2713;" FontSize="12" FontWeight="Bold" Foreground="White"
                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
+
+                    <!-- Hover fill, matched to the tile Border exactly (fills the Grid,
+                         same 20px radius, centred). Opacity toggled by the Button's
+                         Tile_PointerEntered / Tile_PointerExited handlers. -->
+                    <Border Tag="qkTileHover" CornerRadius="20" Background="#12FFFFFF"
+                            Opacity="0" IsHitTestVisible="False" />
                 </Grid>
             </Button>
         </DataTemplate>
 
         <!-- 2b: compact 6-across small tile (106px, r16, icon + label only) -->
         <DataTemplate x:Key="LargeFilesTileTemplate">
-            <Button Click="FolderTile_Click" Background="Transparent" BorderThickness="0" Padding="0"
+            <Button Click="FolderTile_Click" Background="Transparent" BorderThickness="0" Padding="0" CornerRadius="{StaticResource RadiusTile}"
                     HorizontalContentAlignment="Stretch" AutomationProperties.Name="{Binding Name}">
+                <!-- Same subtle rounded hover as the wide tiles; padding 0 here so
+                     the fill matches the tile exactly. -->
+                <Button.Resources>
+                    <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#0CFFFFFF" />
+                    <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#18FFFFFF" />
+                    <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="Transparent" />
+                </Button.Resources>
                 <Border Width="106" CornerRadius="{StaticResource RadiusTile}" Padding="4,14,4,12"
                         Background="{Binding IsSelected, Converter={StaticResource TileFillConverter}}"
                         BorderBrush="{Binding IsSelected, Converter={StaticResource TileBorderConverter}}"
@@ -260,7 +285,7 @@
                             HTML range input's step= behavior.
                         -->
                         <Grid Margin="0,14,0,0">
-                            <Slider x:Name="ThresholdSlider"
+                            <Slider x:Name="ThresholdSlider" AutomationProperties.Name="Large file size threshold"
                                     StepFrequency="1" SmallChange="1" LargeChange="1"
                                     TickFrequency="1" TickPlacement="Outside" SnapsTo="StepValues"
                                     IsThumbToolTipEnabled="False"
@@ -296,22 +321,44 @@
                     </ItemsControl>
                 </Grid>
 
-                <!-- Drop-zone / browse affordance - shared by both modes -->
+                <!-- Drop-zone / browse affordance - shared by both modes. Picks up
+                     its own selected-state (accent border + tinted fill + checkmark
+                     badge, see SetBrowseSelected) when a custom folder is chosen,
+                     mirroring the known-folder tiles so the checkmark is never
+                     stranded on a shortcut the user didn't pick. -->
+                <!-- CornerRadius matches the inner rounded rectangle (RadiusX/Y=18)
+                     so the Button template's own pointer-over/pressed background
+                     rounds to the same corners - otherwise the default (~4px)
+                     control radius paints a mismatched glow behind the box. -->
                 <Button x:Name="BrowseButton" Click="BrowseButton_Click" Margin="0,14,0,0" Width="682"
-                        Background="Transparent" BorderThickness="0" Padding="0"
+                        Background="Transparent" BorderThickness="0" Padding="0" CornerRadius="18"
                         HorizontalContentAlignment="Stretch">
                     <Grid>
-                        <Rectangle RadiusX="18" RadiusY="18" Fill="Transparent"
+                        <Rectangle x:Name="BrowseBorderRect" RadiusX="18" RadiusY="18" Fill="Transparent"
                                    Stroke="{StaticResource SecondaryButtonBorderBrush}"
                                    StrokeThickness="{StaticResource SecondaryButtonBorderThickness}"
                                    StrokeDashArray="4,3" />
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"
                                     Spacing="8" Padding="14">
-                            <TextBlock Text="+" FontSize="17" Foreground="{StaticResource AccentLightBrush}" />
-                            <TextBlock Text="or drop / browse any folder" FontSize="14" FontWeight="SemiBold"
+                            <TextBlock x:Name="BrowsePlusGlyph" Text="+" FontSize="17" Foreground="{StaticResource AccentLightBrush}" />
+                            <TextBlock x:Name="BrowseLabel" Text="or drop / browse any folder" FontSize="14" FontWeight="SemiBold"
                                        FontFamily="{StaticResource BodyFontFamily}"
-                                       Foreground="{StaticResource TextMutedBrush}" />
+                                       Foreground="{StaticResource TextMutedBrush}" TextTrimming="CharacterEllipsis" />
                         </StackPanel>
+
+                        <!-- Selected-state checkmark badge (custom folder). Unlike the
+                             tiles (which overflow into their grid-cell slack with a
+                             negative margin), the full-width Browse box has no slack
+                             outside its bounds, so the badge sits just INSIDE the
+                             top-right corner instead of straddling it - otherwise its
+                             top/right edge clips against the box edge. -->
+                        <Border x:Name="BrowseCheckBadge" Width="24" Height="24" CornerRadius="12" Background="{StaticResource AccentBrush}"
+                                BorderBrush="{StaticResource BgElevatedBrush}" BorderThickness="2"
+                                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,9,10,0"
+                                IsHitTestVisible="False" Visibility="Collapsed">
+                            <TextBlock Text="&#x2713;" FontSize="12" FontWeight="Bold" Foreground="White"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
                     </Grid>
                 </Button>
 
@@ -328,19 +375,24 @@
                                HorizontalAlignment="Center" FontSize="12.5" Foreground="{StaticResource TextDisabledHintBrush}" />
 
                     <!--
-                        Opt-in for look-alike (perceptual) photo matching. Off
-                        by default so a plain Duplicates scan only does exact,
-                        byte-identical matching (cheaper, and what most users
-                        expect). Duplicates mode only - irrelevant in Large
-                        Files mode (see UpdateModeVisuals for the show/hide).
+                        Advanced Options button - opens a persistent overlay of
+                        "deepen the scan" opt-ins (look-alike photos today;
+                        similar videos / deep audio when their engines ship).
+                        Replaces the old inline "Also look for similar photos"
+                        toggle; the choices now persist in AppSettings, not a
+                        session-static field. Duplicates mode only - irrelevant
+                        in Large Files mode (see UpdateModeVisuals show/hide).
                     -->
-                    <StackPanel x:Name="IncludeSimilarRow" Orientation="Horizontal" Spacing="10" Margin="0,6,0,0"
+                    <StackPanel x:Name="AdvancedOptionsRow" Orientation="Horizontal" Margin="0,6,0,0"
                                 HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <ToggleSwitch x:Name="IncludeSimilarToggle" OnContent="" OffContent="" MinWidth="0"
-                                      VerticalAlignment="Center" Toggled="IncludeSimilar_Changed" />
-                        <TextBlock Text="Also look for similar photos." VerticalAlignment="Center"
-                                   FontFamily="{StaticResource BodyFontFamily}" FontSize="13.5"
-                                   Foreground="{StaticResource TextMutedBrush}" />
+                        <Button x:Name="AdvancedOptionsButton" Click="AdvancedOptions_Click"
+                                controls:PillCornerRadius.Enabled="True" Padding="20,11"
+                                Background="#0BFFFFFF" BorderBrush="{StaticResource SurfaceCardBorderBrush}" BorderThickness="1"
+                                AutomationProperties.Name="Advanced Options">
+                            <TextBlock Text="Advanced Options" VerticalAlignment="Center"
+                                       FontFamily="{StaticResource BodyFontFamily}" FontSize="13.5" FontWeight="Bold"
+                                       Foreground="{StaticResource TextSecondaryBrush}" />
+                        </Button>
                     </StackPanel>
                 </StackPanel>
 

@@ -56,6 +56,78 @@ public sealed partial class ScanCompletePage : Page
         {
             ShowDuplicatesSummary(request);
         }
+
+        ConfigureHousekeepingCallout();
+        ConfigureDuplicateFoldersCallout();
+    }
+
+    // Shows the "also found N sets of duplicate folders — Review folders" nudge
+    // only when the scan turned any up (F8). Duplicates mode only (Large Files
+    // has no duplicate groups to derive folder copies from).
+    private void ConfigureDuplicateFoldersCallout()
+    {
+        var groups = _scanResult?.DuplicateFolders;
+        if (_isLargeFilesMode || groups is null || groups.Count == 0)
+        {
+            DuplicateFoldersCallout.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        DuplicateFoldersText.Text = groups.Count == 1
+            ? "Also found 1 set of identical folders worth de-duplicating."
+            : $"Also found {groups.Count} sets of identical folders worth de-duplicating.";
+        DuplicateFoldersCallout.Visibility = Visibility.Visible;
+    }
+
+    private void DuplicateFolders_Click(object sender, RoutedEventArgs e)
+    {
+        if (_scanResult is not { DuplicateFolders.Count: > 0 } result)
+        {
+            return;
+        }
+
+        ((MainWindow)App.MainWindowInstance!).ShowDuplicateFolders(new DuplicateFoldersNavigationRequest(
+            result.DuplicateFolders, result, _isLargeFilesMode,
+            _isLargeFilesMode ? _largeFilesThresholdBytes : null, _targetLabel));
+    }
+
+    // Shows the "also found N empty folders · M zero-byte files — Tidy up" nudge
+    // only when the scan produced any (F5). Purely passive: it never competes
+    // with the primary Review/Select action above.
+    private void ConfigureHousekeepingCallout()
+    {
+        var items = _scanResult?.EmptyItems;
+        if (items is null || items.IsEmpty)
+        {
+            HousekeepingCallout.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var parts = new List<string>();
+        if (items.EmptyFolders.Count > 0)
+        {
+            parts.Add($"{items.EmptyFolders.Count} empty folder{(items.EmptyFolders.Count == 1 ? "" : "s")}");
+        }
+
+        if (items.ZeroByteFiles.Count > 0)
+        {
+            parts.Add($"{items.ZeroByteFiles.Count} zero-byte file{(items.ZeroByteFiles.Count == 1 ? "" : "s")}");
+        }
+
+        HousekeepingText.Text = $"Also found {string.Join(" and ", parts)} worth tidying.";
+        HousekeepingCallout.Visibility = Visibility.Visible;
+    }
+
+    private void Housekeeping_Click(object sender, RoutedEventArgs e)
+    {
+        if (_scanResult is not { EmptyItems: { IsEmpty: false } items } result)
+        {
+            return;
+        }
+
+        ((MainWindow)App.MainWindowInstance!).ShowHousekeeping(new HousekeepingNavigationRequest(
+            items, result, _isLargeFilesMode,
+            _isLargeFilesMode ? _largeFilesThresholdBytes : null, _targetLabel));
     }
 
     private void ShowDuplicatesSummary(ScanCompleteNavigationRequest request)
@@ -96,7 +168,7 @@ public sealed partial class ScanCompletePage : Page
         SubtitleText.Inlines.Add(new Run { Text = " — keep one of each, and that space is yours." });
 
         ReassuranceText.Text = scanResult.SimilarityGroups.Count > 0
-            ? $"Recommended keeps the newest copy in every group. There {(scanResult.SimilarityGroups.Count == 1 ? "is" : "are")} also {scanResult.SimilarityGroups.Count} looks-alike photo group{(scanResult.SimilarityGroups.Count == 1 ? "" : "s")} worth a look in Review Results."
+            ? $"Recommended keeps the newest copy in every group. There {(scanResult.SimilarityGroups.Count == 1 ? "is" : "are")} also {scanResult.SimilarityGroups.Count} similar-photo group{(scanResult.SimilarityGroups.Count == 1 ? "" : "s")} worth a look in Review Results."
             : "Recommended keeps the newest copy in every group. You'll still confirm before anything moves.";
     }
 

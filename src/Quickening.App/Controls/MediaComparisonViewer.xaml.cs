@@ -20,6 +20,24 @@ public sealed partial class MediaComparisonViewer : UserControl
     public MediaComparisonViewer()
     {
         InitializeComponent();
+
+        // Esc closes the overlay like the ✕ does (QA-11) - expected of any
+        // full-window preview. Accelerators don't fire while the control is
+        // collapsed, so this can't swallow Esc elsewhere on the page.
+        var escape = new Microsoft.UI.Xaml.Input.KeyboardAccelerator { Key = Windows.System.VirtualKey.Escape };
+        escape.Invoked += (_, args) =>
+        {
+            if (Visibility == Visibility.Visible)
+            {
+                args.Handled = true;
+                Close_Click(this, new RoutedEventArgs());
+            }
+        };
+        KeyboardAccelerators.Add(escape);
+
+        // WinUI otherwise shows an "Esc" hint tooltip on hover - on a
+        // full-window overlay that popped up wherever the pointer rested.
+        KeyboardAcceleratorPlacementMode = Microsoft.UI.Xaml.Input.KeyboardAcceleratorPlacementMode.Hidden;
     }
 
     /// <summary>
@@ -692,7 +710,7 @@ public sealed partial class MediaComparisonViewer : UserControl
         {
             // Local time, matching LastWriteDateConverter - raw UTC can be a
             // day off from what Explorer shows for the same file.
-            Text = $"{FileSizeFormatter.Format(file.SizeBytes)} · modified {DateTime.SpecifyKind(file.LastWriteTimeUtc, DateTimeKind.Utc).ToLocalTime():MMM d, yyyy}",
+            Text = $"{FileSizeFormatter.Format(file.SizeBytes)} · modified {DateTime.SpecifyKind(file.LastWriteTimeUtc, DateTimeKind.Utc).ToLocalTime():MMM d, yyyy h:mm:ss tt}",
             FontFamily = (FontFamily)resources["BodyFontFamily"],
             FontSize = 11.5,
             Foreground = (Brush)resources["TextFaintBrush"],

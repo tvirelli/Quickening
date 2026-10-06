@@ -60,6 +60,59 @@ public sealed class AppSettings
     public bool ParanoidMode { get; set; }
 
     /// <summary>
+    /// Advanced Options overlay (Home). Off by default so a plain Duplicates
+    /// scan does only exact, byte-identical matching. When on, the scan also
+    /// computes perceptual hashes to surface look-alike photos. Persisted so
+    /// the choice survives app restarts - replaces HomePage's old session-only
+    /// _lastIncludeSimilar field. Read by HomePage at scan start.
+    /// </summary>
+    public bool IncludeSimilarPhotos { get; set; }
+
+    /// <summary>
+    /// Look-alike photo matching strictness (F2): the max pHash Hamming distance
+    /// two photos may differ by and still be grouped. Smaller = stricter (fewer,
+    /// closer matches); larger = looser (more, but more false positives).
+    /// Defaults to the engine's own default; clamped by the engine on use.
+    /// Set by the Advanced Options slider, read by HomePage at scan start.
+    /// </summary>
+    public int SimilarityMaxDistance { get; set; } = Quickening.Core.Similarity.SimilarityEngine.DefaultMaxHammingDistance;
+
+    /// <summary>
+    /// Advanced Options overlay (F9). When on, a Find Duplicates scan also scores
+    /// each photo's sharpness and flags likely-blurry ones for review. Off by
+    /// default; blurry photos are never auto-selected. Read by HomePage at scan start.
+    /// </summary>
+    public bool FlagBlurryPhotos { get; set; }
+
+    /// <summary>
+    /// Blur strictness (F9): the max sharpness score a photo may have and still
+    /// be flagged blurry. Lower = stricter (only the clearly blurry); higher =
+    /// looser (also catches slightly soft shots, with more false flags).
+    /// </summary>
+    public double BlurryMaxSharpness { get; set; } = Quickening.Core.Orchestration.ScanOrchestrator.DefaultBlurryMaxSharpness;
+
+    /// <summary>
+    /// Advanced Options overlay (F10). When on, a Find Duplicates scan also groups
+    /// audio files that are the same song encoded differently (title/artist/
+    /// duration match, any format/bitrate). Off by default. Read at scan start.
+    /// </summary>
+    public bool FindDuplicateSongs { get; set; }
+
+    /// <summary>
+    /// Advanced Options overlay (F11). When on, a Find Duplicates scan also
+    /// matches near-duplicate videos (re-encodes/resizes of the same clip) by
+    /// sampling + hashing frames. Off by default. Read at scan start.
+    /// </summary>
+    public bool IncludeSimilarVideos { get; set; }
+
+    /// <summary>
+    /// Advanced Options overlay. Reserved for acoustic-fingerprint audio
+    /// matching (not built yet) - persisted now so the toggle's state is
+    /// durable once it ships.
+    /// </summary>
+    public bool DeepAudioMatching { get; set; }
+
+    /// <summary>
     /// Newest by default (matches the app's original hardcoded behavior).
     /// Read by ResultsViewModel.SelectRecommended.
     /// </summary>
@@ -71,6 +124,20 @@ public sealed class AppSettings
     /// callers. Empty by default.
     /// </summary>
     public List<string> TrustedFolderPaths { get; set; } = new();
+
+    /// <summary>
+    /// Files the user chose to Ignore - hidden from every review section and from
+    /// future scans (unless "Show ignored" is on). Managed via right-click Ignore /
+    /// the Manage Ignored Files screen. See IgnoreService.
+    /// </summary>
+    public List<string> IgnoredFilePaths { get; set; } = new();
+
+    /// <summary>
+    /// Folders the user chose to Ignore - any file at or under one of these is
+    /// treated as ignored (covers a whole tree, e.g. a Scrapbook folder whose
+    /// pages are deliberate copies). See IgnoreService.
+    /// </summary>
+    public List<string> IgnoredFolderPaths { get; set; } = new();
 
     /// <summary>
     /// Automation group, Settings screen. The scheduler itself is an

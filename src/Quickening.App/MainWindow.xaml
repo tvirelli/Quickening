@@ -29,13 +29,46 @@
             logo (logo.png already contains the icon; the separate icon.png
             was removed as redundant per 2026-07-11 feedback).
         -->
-        <Grid x:Name="TitleBarRegion" Grid.Row="0" Padding="20,0,0,0" Background="Transparent">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <!-- 32 in the 48px strip, nudged down (top margin) per
-                     2026-07-11 feedback; 38 left the wordmark visually
-                     glued to the top edge. -->
-                <Image Source="ms-appx:///Assets/Branding/logo.png" Height="32" Margin="0,6,0,0" />
-            </StackPanel>
+        <!--
+            The strip is split so the right side can host an INTERACTIVE
+            element: SetTitleBar(TitleBarRegion) turns that element's bounds
+            into the non-client drag region, which swallows pointer input -
+            so the Recycle Bin pill lives in its own sibling column instead.
+            Its right margin is set in code from AppWindowTitleBar.RightInset
+            so it never sits under the system caption buttons at any DPI.
+        -->
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <Grid x:Name="TitleBarRegion" Grid.Column="0" Padding="20,0,0,0" Background="Transparent">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- 32 in the 48px strip, nudged down (top margin) per
+                         2026-07-11 feedback; 38 left the wordmark visually
+                         glued to the top edge. -->
+                    <Image Source="ms-appx:///Assets/Branding/logo.png" Height="32" Margin="0,6,0,0" />
+                </StackPanel>
+            </Grid>
+
+            <!-- Recycle Bin indicator: only shown while Windows' bin actually
+                 holds items (refreshed on navigation + a slow timer). Click
+                 opens the press-and-hold Empty-Recycle-Bin dialog. -->
+            <Button x:Name="RecycleBinPill" Grid.Column="1" Click="RecycleBinPill_Click"
+                    Visibility="Collapsed" VerticalAlignment="Center" Margin="0,6,150,0"
+                    Background="{StaticResource SurfaceCardBrush}"
+                    BorderBrush="{StaticResource SurfaceCardBorderBrush}" BorderThickness="1"
+                    Padding="12,4" controls:PillCornerRadius.Enabled="True"
+                    xmlns:controls="using:Quickening.App.Controls"
+                    ToolTipService.ToolTip="The Windows Recycle Bin has items in it — click to empty it">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                    <FontIcon Glyph="&#xE74D;" FontSize="12.5" Foreground="{StaticResource TextSecondaryBrush}" />
+                    <TextBlock x:Name="RecycleBinPillText" FontFamily="{StaticResource BodyFontFamily}"
+                               FontSize="12" FontWeight="Bold" Foreground="{StaticResource TextSecondaryBrush}"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
         </Grid>
 
         <Frame x:Name="ContentFrame" Grid.Row="1" Background="Transparent" />

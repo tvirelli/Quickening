@@ -21,9 +21,12 @@ public sealed partial class LargeFilesResultsPage : Page
     // and silently resurrect files already removed this session.
     private IReadOnlyList<SelectableFile>? _loadedFiles;
     private ScanResult? _scanResult;
+
+    // The loaded candidates, kept so the header and CATEGORY counts can be
+    // recounted (ignored files excluded) after every ignore change.
+    private IReadOnlyList<SelectableFile> _allFiles = Array.Empty<SelectableFile>();
     private long _thresholdBytes;
     private string? _targetLabel;
-    private List<MimeCategory> _overflowCategories = new();
     private long _selectOverThresholdBytes;
 
     // Held as its own field so RemoveSelectedFilesAsync can hand this SAME
@@ -63,22 +66,39 @@ public sealed partial class LargeFilesResultsPage : Page
         _targetLabel = request.TargetLabel;
 
         _suppressFilterControlEvents = true;
-        MinSizeBox.Value = _thresholdBytes / (1024.0 * 1024.0);
-        MaxSizeBox.Value = double.NaN;
+        // Min size pre-fills with the scan's own threshold (in MB); everything
+        // below it wasn't loaded onto this page, so "no min" would be misleading.
+        MinSizeValueBox.Text = (_thresholdBytes / (1024.0 * 1024.0)).ToString("0.##");
+        MinSizeUnitCombo.SelectedIndex = 0; // MB
+        MaxSizeValueBox.Text = "";
+        MaxSizeUnitCombo.SelectedIndex = 0; // MB
         PathContainsBox.Text = "";
+        ModifiedAfterPicker.Date = null;
+        ModifiedBeforePicker.Date = null;
+        ClearModifiedAfterButton.Visibility = Visibility.Collapsed;
+        ClearModifiedBeforeButton.Visibility = Visibility.Collapsed;
         _viewModel.CategoryFilter.Clear();
         _viewModel.MinSizeBytes = _thresholdBytes;
         _viewModel.MaxSizeBytes = null;
         _viewModel.PathContains = null;
+        _viewModel.ModifiedAfter = null;
+        _viewModel.ModifiedBefore = null;
+        _viewModel.ExtensionFilter = null;
+        // "Show ignored" resets with the rest of the filters - without this a
+        // NEW scan silently inherited the toggle from the previous one.
+        _viewModel.ShowIgnored = false;
+        UpdateShowIgnoredChip();
 
+        _allFiles = request.CandidateFiles;
         _viewModel.LoadFiles(request.CandidateFiles);
-        PopulateCategoryChips(request.CandidateFiles);
+        PopulateCategorySidebar(request.CandidateFiles);
+        PopulateExtensionCombo();
         _suppressFilterControlEvents = false;
 
         _selectOverThresholdBytes = Math.Max(_thresholdBytes * 5, _thresholdBytes + 1);
         SelectOverButton.Content = $"Over {FileSizeFormatter.Format(_selectOverThresholdBytes)}…";
 
-        RefreshHeaderStats(request.CandidateFiles);
+        RefreshHeaderStats();
         RefreshShowingCount();
         RefreshSelectedSizeStat();
     }
@@ -102,28 +122,25 @@ public sealed partial class LargeFilesResultsPage : Page
     }
 
     // "42 files over 100 MB · 61.3 GB total · biggest first" (screen 2h) -
-    // computed once from the full unfiltered candidate list at load time,
-    // not re-derived from the currently-filtered view (unlike ShowingCountText
-    // below, which does track the active filters).
-    private void RefreshHeaderStats(IReadOnlyList<SelectableFile> allFiles)
+    // from the full candidate list, not the currently-filtered view (unlike
+    // ShowingCountText below, which tracks the active filters). Ignored files
+    // are left out, though: they're kept on purpose and hidden everywhere, so
+    // counting them disagreed with the list after an ignore (QA-5). Re-run on
+    // every ignore change.
+    private void RefreshHeaderStats()
     {
         TitleText.Text = $"Large files in {(string.IsNullOrWhiteSpace(_targetLabel) ? "your files" : _targetLabel)}";
 
+        var allFiles = _allFiles.Where(f => !IgnoreService.IsIgnored(f.Path)).ToList();
         var totalBytes = allFiles.Sum(f => f.SizeBytes);
         SummaryText.Text = $"{allFiles.Count} file{(allFiles.Count == 1 ? "" : "s")} over "
             + $"{FileSizeFormatter.Format(_thresholdBytes)} · {FileSizeFormatter.Format(totalBytes)} total · biggest first";
     }
 
-    // Caps individually-rendered category chips (screen 2h shows "All" plus
-    // up to four categories before folding the rest into a single "+N"
-    // chip) - MimeCategory has seven values, so without a cap every scan
-    // touching enough categories would overflow the header's available
-    // width. Categories beyond the cap are still fully filterable, just via
-    // the "+N" chip's flyout (see CategoryChipsList_SelectionChanged) rather
-    // than their own permanent chip.
-    private const int MaxVisibleCategoryChips = 4;
-
-    private void PopulateCategoryChips(IReadOnlyList<SelectableFile> allFiles)
+    // Multi-select category checklist with live match counts - identical to
+    // ResultsPage's PopulateCategorySidebar. Every category present is shown (no
+    // "+N" collapse), plus an "All" row that clears the category filter.
+    private void PopulateCategorySidebar(IReadOnlyList<SelectableFile> allFiles)
     {
         var breakdown = allFiles
             .GroupBy(f => f.Category)
@@ -131,21 +148,42 @@ public sealed partial class LargeFilesResultsPage : Page
             .OrderByDescending(x => x.Count)
             .ToList();
 
-        var items = new List<CategoryChipItem> { new(Category: null, Label: "All") };
-        var visible = breakdown.Take(MaxVisibleCategoryChips).ToList();
-        var overflow = breakdown.Skip(MaxVisibleCategoryChips).ToList();
+        var items = new List<CategorySidebarItem> { new(Category: null, Label: "All") };
+        items.AddRange(breakdown.Select(b => new CategorySidebarItem(b.Category, ChipLabel(b.Category))));
 
-        items.AddRange(visible.Select(b => new CategoryChipItem(b.Category, ChipLabel(b.Category))));
+        CategorySidebar.ItemsSource = items;
+        items[0].IsSelected = true; // "All"
+        RefreshCategoryCounts();
+    }
 
-        _overflowCategories = overflow.Select(o => o.Category).ToList();
-        if (_overflowCategories.Count > 0)
+    // Same as ResultsPage.RefreshCategoryCounts: ignored files excluded,
+    // updated in place so the category selection survives (QA-5).
+    private void RefreshCategoryCounts()
+    {
+        if (CategorySidebar.ItemsSource is not IEnumerable<CategorySidebarItem> items)
         {
-            items.Add(new CategoryChipItem(Category: null, Label: $"+{_overflowCategories.Count}", IsOverflow: true));
+            return;
         }
 
-        CategoryChipsList.ItemsSource = items;
-        CategoryChipsList.SelectedIndex = 0;
-        items[0].IsSelected = true;
+        var files = _allFiles.Where(f => !IgnoreService.IsIgnored(f.Path)).ToList();
+        foreach (var item in items)
+        {
+            item.Count = item.Category is { } category ? files.Count(f => f.Category == category) : files.Count;
+        }
+    }
+
+    // Fills the Extension dropdown with exactly the extensions present in the
+    // loaded files (LargeFilesResultsViewModel.AvailableExtensions), same as
+    // ResultsPage.PopulateExtensionCombo. Runs under _suppressFilterControlEvents.
+    private void PopulateExtensionCombo()
+    {
+        ExtensionCombo.Items.Clear();
+        foreach (var ext in _viewModel.AvailableExtensions)
+        {
+            ExtensionCombo.Items.Add(new ComboBoxItem { Content = ext });
+        }
+
+        ExtensionCombo.SelectedIndex = -1; // "any"
     }
 
     private static string ChipLabel(MimeCategory category) => category switch
@@ -160,71 +198,56 @@ public sealed partial class LargeFilesResultsPage : Page
         _ => category.ToString(),
     };
 
-    private void CategoryChipsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    // The category rail is a multi-select checklist - identical to
+    // ResultsPage.CategoryItem_Click: tap specific categories to include several
+    // at once, or tap "All" to clear the category filter. "All" is checked
+    // exactly when no specific category is.
+    private void CategoryItem_Click(object sender, Microsoft.UI.Xaml.Controls.ItemClickEventArgs e)
     {
-        if (_suppressFilterControlEvents)
+        if (_suppressFilterControlEvents || e.ClickedItem is not CategorySidebarItem clicked
+            || CategorySidebar.ItemsSource is not IEnumerable<CategorySidebarItem> source)
         {
             return;
         }
 
-        if (CategoryChipsList.SelectedItem is not CategoryChipItem item)
+        var items = source.ToList();
+        if (clicked.Category is null)
         {
-            return;
-        }
-
-        if (item.IsOverflow)
-        {
-            ShowOverflowCategoryFlyout(item);
-            return;
-        }
-
-        if (CategoryChipsList.ItemsSource is IEnumerable<CategoryChipItem> allItems)
-        {
-            foreach (var chip in allItems)
+            // "All" resets the category filter.
+            foreach (var item in items)
             {
-                chip.IsSelected = ReferenceEquals(chip, item);
+                item.IsSelected = item.Category is null;
+            }
+        }
+        else
+        {
+            clicked.IsSelected = !clicked.IsSelected;
+            var anySpecific = items.Any(item => item.Category is not null && item.IsSelected);
+            foreach (var item in items.Where(item => item.Category is null))
+            {
+                item.IsSelected = !anySpecific; // "All" mirrors "nothing specific chosen"
             }
         }
 
         _viewModel.CategoryFilter.Clear();
-        if (item.Category is { } category)
+        foreach (var item in items.Where(item => item is { Category: not null, IsSelected: true }))
         {
-            _viewModel.CategoryFilter.Add(category);
+            _viewModel.CategoryFilter.Add(item.Category!.Value);
         }
 
         ApplyFiltersAndRefresh();
     }
 
-    // The "+N" chip isn't itself a category - clicking it opens a flyout of
-    // the categories that didn't fit as their own chip (see
-    // PopulateCategoryChips); picking one filters to just that category,
-    // same as clicking a regular chip would, and the "+N" chip itself
-    // stays visually selected as feedback that an overflow category is the
-    // active filter (there's no individual chip for it to highlight instead).
-    private void ShowOverflowCategoryFlyout(CategoryChipItem overflowItem)
+    // Resets the category checklist to "All" (no category filter).
+    private void ResetCategorySelection()
     {
-        var flyout = new MenuFlyout();
-        foreach (var category in _overflowCategories)
+        if (CategorySidebar.ItemsSource is IEnumerable<CategorySidebarItem> items)
         {
-            var menuItem = new MenuFlyoutItem { Text = ChipLabel(category) };
-            menuItem.Click += (_, _) =>
+            foreach (var item in items)
             {
-                if (CategoryChipsList.ItemsSource is IEnumerable<CategoryChipItem> allItems)
-                {
-                    foreach (var chip in allItems)
-                    {
-                        chip.IsSelected = ReferenceEquals(chip, overflowItem);
-                    }
-                }
-
-                _viewModel.CategoryFilter.Clear();
-                _viewModel.CategoryFilter.Add(category);
-                ApplyFiltersAndRefresh();
-            };
-            flyout.Items.Add(menuItem);
+                item.IsSelected = item.Category is null;
+            }
         }
-
-        flyout.ShowAt(CategoryChipsList);
     }
 
     // Same per-keystroke rebuild problem (and same debounce) as
@@ -254,27 +277,58 @@ public sealed partial class LargeFilesResultsPage : Page
     {
         _filterDebounceTimer?.Stop();
         _suppressFilterControlEvents = true;
-        MinSizeBox.Value = _thresholdBytes / (1024.0 * 1024.0); // Clear resets to the scan's own threshold, not to nothing - everything below it wasn't even loaded onto this page.
-        MaxSizeBox.Value = double.NaN;
+        // Clear resets min to the scan's own threshold (everything below it
+        // wasn't even loaded onto this page); every other filter goes empty.
+        MinSizeValueBox.Text = (_thresholdBytes / (1024.0 * 1024.0)).ToString("0.##");
+        MinSizeUnitCombo.SelectedIndex = 0; // MB
+        MaxSizeValueBox.Text = "";
+        MaxSizeUnitCombo.SelectedIndex = 0; // MB
         PathContainsBox.Text = "";
-        CategoryChipsList.SelectedIndex = 0; // "All"
+        ModifiedAfterPicker.Date = null;
+        ModifiedBeforePicker.Date = null;
+        ClearModifiedAfterButton.Visibility = Visibility.Collapsed;
+        ClearModifiedBeforeButton.Visibility = Visibility.Collapsed;
+        ExtensionCombo.SelectedIndex = -1; // "any"
+        ResetCategorySelection();
         _suppressFilterControlEvents = false;
 
         _viewModel.CategoryFilter.Clear();
         SyncFiltersFromControlsAndApply();
     }
 
+    // Clear just one end of the MODIFIED range (QA-19) - previously only
+    // "Clear all" could undo a date. Setting Date raises DateChanged, which
+    // runs FilterChanged like any other filter edit.
+    private void ClearModifiedAfter_Click(object sender, RoutedEventArgs e) => ModifiedAfterPicker.Date = null;
+
+    private void ClearModifiedBefore_Click(object sender, RoutedEventArgs e) => ModifiedBeforePicker.Date = null;
+
     private void SyncFiltersFromControlsAndApply()
     {
-        _viewModel.MinSizeBytes = MinSizeBox.Value is double min && !double.IsNaN(min)
-            ? (long)(min * 1024 * 1024)
-            : null;
-        _viewModel.MaxSizeBytes = MaxSizeBox.Value is double max && !double.IsNaN(max)
-            ? (long)(max * 1024 * 1024)
-            : null;
+        _viewModel.MinSizeBytes = SizeFieldToBytes(MinSizeValueBox.Text, MinSizeUnitCombo);
+        _viewModel.MaxSizeBytes = SizeFieldToBytes(MaxSizeValueBox.Text, MaxSizeUnitCombo);
         _viewModel.PathContains = string.IsNullOrWhiteSpace(PathContainsBox.Text) ? null : PathContainsBox.Text;
+        _viewModel.ModifiedAfter = ModifiedAfterPicker.Date?.Date;
+        _viewModel.ModifiedBefore = ModifiedBeforePicker.Date?.Date;
+        // Each date's ✕ shows only while that date is set (QA-19).
+        ClearModifiedAfterButton.Visibility = ModifiedAfterPicker.Date is null ? Visibility.Collapsed : Visibility.Visible;
+        ClearModifiedBeforeButton.Visibility = ModifiedBeforePicker.Date is null ? Visibility.Collapsed : Visibility.Visible;
+        _viewModel.ExtensionFilter = (ExtensionCombo.SelectedItem as ComboBoxItem)?.Content as string;
 
         ApplyFiltersAndRefresh();
+    }
+
+    // Converts a size field (numeric text + MB/GB unit dropdown) to bytes. Blank
+    // or non-positive input means "no bound". Identical to ResultsPage.SizeFieldToBytes.
+    private static long? SizeFieldToBytes(string text, ComboBox unitCombo)
+    {
+        if (!double.TryParse(text, out var value) || value <= 0)
+        {
+            return null;
+        }
+
+        var unitBytes = unitCombo.SelectedIndex == 1 ? 1024L * 1024 * 1024 : 1024L * 1024; // GB : MB
+        return (long)(value * unitBytes);
     }
 
     private void ApplyFiltersAndRefresh()
@@ -360,7 +414,10 @@ public sealed partial class LargeFilesResultsPage : Page
         try
         {
             var csv = BuildLargeFilesCsv(_viewModel.Files);
-            await File.WriteAllTextAsync(result.Path, csv);
+            // UTF-8 WITH a byte-order mark: Excel opens a BOM-less .csv in the
+            // ANSI code page, which turned "KEEP — newest" into "KEEP â€” newest"
+            // (and would mangle any non-ASCII file path) - QA-18.
+            await File.WriteAllTextAsync(result.Path, csv, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -388,6 +445,16 @@ public sealed partial class LargeFilesResultsPage : Page
     // See ResultsPage.xaml.cs's identical CsvField for the quoting rule.
     private static string CsvField(string value)
     {
+        // Formula-injection hardening: a cell starting with = + - @ (or a
+        // stray tab/CR) executes as a formula when the export is opened in
+        // Excel/Sheets. File names are attacker-influenced, so neutralize by
+        // prefixing an apostrophe and force-quoting the field.
+        if (value.Length > 0 && value[0] is '=' or '+' or '-' or '@' or '\t' or '\r')
+        {
+            value = "'" + value;
+            return "\"" + value.Replace("\"", "\"\"") + "\"";
+        }
+
         if (value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) < 0)
         {
             return value;
@@ -468,12 +535,109 @@ public sealed partial class LargeFilesResultsPage : Page
             return;
         }
 
+        var ignored = target.DataContext is SelectableFile { IsIgnored: true };
         foreach (var item in flyout.Items)
         {
-            if (item is MenuFlyoutItem menuItem)
+            if (item is not MenuFlyoutItem menuItem)
             {
-                menuItem.DataContext = target.DataContext;
+                continue;
             }
+
+            menuItem.DataContext = target.DataContext;
+            menuItem.Visibility = (menuItem.Tag as string) switch
+            {
+                "unignore" => ignored ? Visibility.Visible : Visibility.Collapsed,
+                "ignore-file" or "ignore-folder" => ignored ? Visibility.Collapsed : Visibility.Visible,
+                _ => Visibility.Visible,
+            };
+        }
+    }
+
+    private void IgnoreFile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuFlyoutItem { DataContext: SelectableFile file })
+        {
+            ApplyIgnoreChange(() => IgnoreService.IgnoreFiles(new[] { file.Path }));
+        }
+    }
+
+    private void IgnoreFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuFlyoutItem { DataContext: SelectableFile file }
+            && System.IO.Path.GetDirectoryName(file.Path) is { } folder)
+        {
+            ApplyIgnoreChange(() => IgnoreService.IgnoreFolder(folder));
+        }
+    }
+
+    private void UnignoreFile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuFlyoutItem { DataContext: SelectableFile file })
+        {
+            ApplyIgnoreChange(() => IgnoreService.UnignoreFile(file.Path));
+        }
+    }
+
+    // "Show ignored" is styled as a CATEGORY-checklist row (rounded check + tick)
+    // rather than a stock CheckBox, so its selected state is painted here to
+    // match those chips (accent fill/border + visible tick + white label).
+    private void ShowIgnored_Toggle(object sender, RoutedEventArgs e)
+    {
+        _viewModel.ShowIgnored = !_viewModel.ShowIgnored;
+        UpdateShowIgnoredChip();
+        ApplyIgnoreChange(() => { });
+    }
+
+    private void UpdateShowIgnoredChip()
+    {
+        var on = _viewModel.ShowIgnored;
+        var resources = Application.Current.Resources;
+        ShowIgnoredCheck.Background = on
+            ? (Brush)resources["AccentBrush"]
+            : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        ShowIgnoredCheck.BorderBrush = (Brush)resources[on ? "AccentBrush" : "SurfaceCardBorderBrush"];
+        ShowIgnoredCheckMark.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        ShowIgnoredLabel.Foreground = on
+            ? new SolidColorBrush(Microsoft.UI.Colors.White)
+            : (Brush)resources["TextMutedBrush"];
+
+        // The check state is otherwise invisible to UIA (this is a Button, not
+        // a ToggleButton) - fold it into the announced name.
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(
+            ShowIgnoredButton, on ? "Show ignored, on" : "Show ignored, off");
+    }
+
+    private void ApplyIgnoreChange(Action mutate)
+    {
+        mutate();
+        // A checked file the user just ignored must not carry its checkmark
+        // into Remove Selected - same rule as ResultsPage.ApplyIgnoreChange.
+        _viewModel.ClearIgnoredSelections();
+        _viewModel.ApplyFilters();
+        RefreshHeaderStats();
+        RefreshCategoryCounts();
+        RefreshShowingCount();
+        RefreshSelectedSizeStat();
+    }
+
+    // Mirrors ResultsPage.OpenFile_Click - the two row menus offer the same
+    // superset of actions.
+    private void OpenFile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuFlyoutItem { DataContext: SelectableFile file })
+        {
+            return;
+        }
+
+        try
+        {
+            // UseShellExecute opens the file in whatever app is registered for
+            // its type - the point of "Open file".
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(file.Path) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            App.Logger?.LogError($"Opening file '{file.Path}' failed: {ex}");
         }
     }
 
@@ -635,11 +799,11 @@ public sealed partial class LargeFilesResultsPage : Page
     private sealed record RemovalOutcome(IReadOnlyList<string> Failed, long SizeBytesAttempted, int FileCountAttempted);
 
     /// <summary>
-    /// Category filter chip data (screen 2h's chip row) - same shape as
-    /// ResultsPage.xaml.cs's private CategorySidebarItem, plus IsOverflow for
-    /// the "+N" chip (see PopulateCategoryChips/ShowOverflowCategoryFlyout).
+    /// Category checklist row data - identical to ResultsPage.xaml.cs's private
+    /// CategorySidebarItem (not a record so mutating IsSelected raises
+    /// PropertyChanged and the bound Background/BorderBrush/Foreground refresh).
     /// </summary>
-    private sealed class CategoryChipItem : System.ComponentModel.INotifyPropertyChanged
+    private sealed class CategorySidebarItem : System.ComponentModel.INotifyPropertyChanged
     {
         private bool _isSelected;
 
@@ -647,14 +811,34 @@ public sealed partial class LargeFilesResultsPage : Page
 
         public MimeCategory? Category { get; }
         public string Label { get; }
-        public bool IsOverflow { get; }
 
-        public CategoryChipItem(MimeCategory? Category, string Label, bool IsOverflow = false)
+        public CategorySidebarItem(MimeCategory? Category, string Label)
         {
             this.Category = Category;
             this.Label = Label;
-            this.IsOverflow = IsOverflow;
         }
+
+        // File count for this category in the loaded results, ignored files
+        // excluded (total for "All"). Settable + notifying so an ignore change
+        // recounts in place (QA-5).
+        private int _count;
+
+        public int Count
+        {
+            get => _count;
+            set
+            {
+                _count = value;
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Count)));
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(CountText)));
+            }
+        }
+
+        public string CountText => Count.ToString();
+
+        // Screen readers announce a ListView item by its data item's ToString();
+        // without this they read the class name (QA-6).
+        public override string ToString() => $"{Label}, {Count} file{(Count == 1 ? "" : "s")}";
 
         public bool HasSwatch => Category is not null;
 

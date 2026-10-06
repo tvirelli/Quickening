@@ -231,9 +231,9 @@ public sealed partial class CelebrationPage : Page
     }
 
     // Undo toast (new-screens 4j) - "184 files moved to the Recycle Bin —
-    // 9.1 GB back" with an Undo action and an 8-second auto-dismiss. The
+    // 9.1 GB back" with an Undo action and a 15-second auto-dismiss. The
     // mockup's own countdown ring visual is not reproduced here (a plain
-    // timer drives the same 8-second dismiss without a hand-drawn arc) -
+    // timer drives the same 15-second dismiss without a hand-drawn arc) -
     // never blocks anything else on the page either way, it's a floating
     // overlay, not a dialog.
     private void ShowUndoToast(IReadOnlyList<string> removedFilePaths, IRecycleBinService recycleBinService)
@@ -337,6 +337,8 @@ public sealed partial class CelebrationPage : Page
                 {
                     App.Logger?.LogError($"Failed to roll back trash-log entries after Undo: {ex}");
                 }
+
+                ShowUndoneState(restoredCount, removedFilePaths.Count);
             }
 
             messageText.Inlines.Clear();
@@ -360,13 +362,45 @@ public sealed partial class CelebrationPage : Page
         UndoToastHost.Content = root;
         UndoToastHost.Visibility = Visibility.Visible;
 
-        _undoAutoDismissTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
+        // 15 s (was 8): long enough to read the celebration and still reach
+        // Undo - 8 s routinely expired before a user got to it.
+        _undoAutoDismissTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
         _undoAutoDismissTimer.Tick += (_, _) =>
         {
             _undoAutoDismissTimer!.Stop();
             UndoToastHost.Visibility = Visibility.Collapsed;
         };
         _undoAutoDismissTimer.Start();
+    }
+
+    // After a successful Undo the page was still celebrating "128 KB back! 2
+    // duplicates are waiting in the Recycle Bin" (QA-12), and "Review what's
+    // left" silently landed on Home. Say what actually happened, drop the
+    // now-wrong bin reminder and coffee line, label the button for where it
+    // goes, and refresh the title-bar bin pill right away instead of on its
+    // next timer tick.
+    private void ShowUndoneState(int restoredCount, int removedCount)
+    {
+        var allBack = restoredCount == removedCount;
+        HeadlineTextBlock.Inlines.Clear();
+        HeadlineTextBlock.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
+        {
+            Text = allBack ? "Undone — nothing removed." : "Partly undone.",
+        });
+        SubtitleText.Text = allBack
+            ? restoredCount == 1 ? "The file is back where it was." : $"All {restoredCount} files are back where they were."
+            : $"{restoredCount} of {removedCount} files are back where they were; the rest are still in the Recycle Bin.";
+
+        if (allBack)
+        {
+            ReminderBannerHost.Visibility = Visibility.Collapsed;
+            CoffeeLineButton.Visibility = Visibility.Collapsed;
+        }
+
+        // ReviewWhatsLeft_Click goes Home after an Undo (the cached results
+        // are stale), so the button now says so.
+        ReviewWhatsLeftButton.Content = "Start a fresh scan";
+        (App.MainWindowInstance as MainWindow)?.RefreshRecycleBinPill();
     }
 
     private async Task HideUndoToastAfterDelayAsync()

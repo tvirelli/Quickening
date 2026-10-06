@@ -543,6 +543,102 @@ public class ResultsViewModelTests
     }
 
     [Fact]
+    public void SelectAllButBestInSimilarityGroups_KeepsHighestResolution_EvenIfSmallerFile()
+    {
+        var viewModel = new ResultsViewModel(new FakeRecycleBinService());
+        var t = DateTime.UtcNow;
+        // high.jpg is higher resolution but a SMALLER file - resolution must win.
+        viewModel.LoadSimilarityGroups(new[]
+        {
+            new Quickening.Core.Similarity.SimilarityGroup
+            {
+                MatchPercent = 95,
+                Files = new List<FileRecord>
+                {
+                    new() { Path = @"C:\low.jpg", SizeBytes = 500_000, Category = MimeCategory.Image, LastWriteTimeUtc = t, PixelWidth = 1024, PixelHeight = 768 },
+                    new() { Path = @"C:\high.jpg", SizeBytes = 400_000, Category = MimeCategory.Image, LastWriteTimeUtc = t, PixelWidth = 4032, PixelHeight = 3024 },
+                },
+            },
+        });
+
+        var group = viewModel.SimilarityGroups[0];
+        Assert.Equal("HIGHER RES", group.Files.Single(f => f.Path == @"C:\high.jpg").HintLabel);
+
+        viewModel.SelectAllButBestInSimilarityGroups();
+
+        Assert.False(group.Files.Single(f => f.Path == @"C:\high.jpg").IsSelected); // best kept
+        Assert.True(group.Files.Single(f => f.Path == @"C:\low.jpg").IsSelected);   // lower-res removed
+    }
+
+    private static ResultsViewModel LoadOneSimilarityGroup(params FileRecord[] files)
+    {
+        var viewModel = new ResultsViewModel(new FakeRecycleBinService());
+        viewModel.LoadSimilarityGroups(new[]
+        {
+            new Quickening.Core.Similarity.SimilarityGroup { MatchPercent = 90, Files = files.ToList() },
+        });
+        return viewModel;
+    }
+
+    private static FileRecord Photo(string path, long size, int side, double? sharpness) => new()
+    {
+        Path = path, SizeBytes = size, Category = MimeCategory.Image, LastWriteTimeUtc = DateTime.UtcNow,
+        PixelWidth = side, PixelHeight = side, Sharpness = sharpness,
+    };
+
+    // QA-7 regression (values from the QA arena): same resolution, the blurry
+    // copy is the much BIGGER file - the old resolution-then-size rule kept it.
+    [Fact]
+    public void KeepBest_SameResolution_KeepsTheClearlySharperCopy_NotTheBiggerBlurryOne()
+    {
+        var viewModel = LoadOneSimilarityGroup(
+            Photo(@"C:\blurry-shot.png", 120_478, 256, 6.8),
+            Photo(@"C:\sharp-keeper.png", 7_376, 256, 981.0));
+        var group = viewModel.SimilarityGroups[0];
+
+        viewModel.SelectAllButBestInSimilarityGroups();
+
+        Assert.False(group.Files.Single(f => f.Path == @"C:\sharp-keeper.png").IsSelected);
+        Assert.True(group.Files.Single(f => f.Path == @"C:\blurry-shot.png").IsSelected);
+        Assert.Equal("SHARPER", group.Files.Single(f => f.Path == @"C:\sharp-keeper.png").HintLabel);
+        Assert.Null(group.Files.Single(f => f.Path == @"C:\blurry-shot.png").HintLabel);
+    }
+
+    // QA-7 regression: a quality-35 JPEG re-save scores within a few percent of
+    // its lossless original (JPEG blocking) and is the bigger file - keep the
+    // original format, and never label the JPEG "HIGHER RES" at equal size.
+    [Fact]
+    public void KeepBest_SameResolutionAndNearEqualSharpness_KeepsTheLosslessOriginalOverAJpegResave()
+    {
+        var viewModel = LoadOneSimilarityGroup(
+            Photo(@"C:\vacation-half-size.png", 17_089, 128, 1584.5),
+            Photo(@"C:\vacation-low-quality.jpg", 7_219, 256, 885.9),
+            Photo(@"C:\vacation-original.png", 6_469, 256, 903.6));
+        var group = viewModel.SimilarityGroups[0];
+
+        viewModel.SelectAllButBestInSimilarityGroups();
+
+        Assert.False(group.Files.Single(f => f.Path == @"C:\vacation-original.png").IsSelected);
+        Assert.True(group.Files.Single(f => f.Path == @"C:\vacation-low-quality.jpg").IsSelected);
+        Assert.True(group.Files.Single(f => f.Path == @"C:\vacation-half-size.png").IsSelected);
+        Assert.Equal("ORIGINAL FORMAT", group.Files.Single(f => f.Path == @"C:\vacation-original.png").HintLabel);
+    }
+
+    [Fact]
+    public void KeepBest_FullTie_KeepsExactlyOneAndShowsNoHint()
+    {
+        var viewModel = LoadOneSimilarityGroup(
+            Photo(@"C:\a.jpg", 1_000, 512, 100),
+            Photo(@"C:\b.jpg", 1_000, 512, 100));
+        var group = viewModel.SimilarityGroups[0];
+
+        viewModel.SelectAllButBestInSimilarityGroups();
+
+        Assert.Equal(1, group.Files.Count(f => !f.IsSelected));
+        Assert.All(group.Files, f => Assert.Null(f.HintLabel));
+    }
+
+    [Fact]
     public void LoadGroups_MarksTheNewestFileInEachGroupAsKeepRecommended()
     {
         var viewModel = new ResultsViewModel(new FakeRecycleBinService());
@@ -559,6 +655,47 @@ public class ResultsViewModelTests
 
         Assert.True(viewModel.Groups[0].Files.Single(f => f.Path == @"C:\new.txt").IsKeepRecommended);
         Assert.False(viewModel.Groups[0].Files.Single(f => f.Path == @"C:\old.txt").IsKeepRecommended);
+    }
+
+    // Copies made in one go share a modified time to the second; rows show
+    // seconds, so "KEEP — newest" on one of them (won on milliseconds)
+    // looked arbitrary. A tie reads plain "KEEP"; one file is still kept.
+    [Fact]
+    public void LoadGroups_LabelsKeeperPlainKeep_WhenTimesTieToTheSecond()
+    {
+        var viewModel = new ResultsViewModel(new FakeRecycleBinService());
+        var t = new DateTime(2026, 10, 5, 20, 8, 16, DateTimeKind.Utc);
+        viewModel.LoadGroups(new[]
+        {
+            MakeGroupWithDetails(new[]
+            {
+                (@"C:\a.bin", 100L, MimeCategory.Other, t.AddMilliseconds(120)),
+                (@"C:\b.bin", 100L, MimeCategory.Other, t.AddMilliseconds(480)),
+            }),
+        });
+
+        var keepers = viewModel.Groups[0].Files.Where(f => f.IsKeepRecommended).ToList();
+        Assert.Single(keepers);
+        Assert.Equal("KEEP", keepers[0].KeepRecommendedLabel);
+    }
+
+    [Fact]
+    public void LoadGroups_LabelsKeeperNewest_WhenItIsNewerByAtLeastASecond()
+    {
+        var viewModel = new ResultsViewModel(new FakeRecycleBinService());
+        var t = new DateTime(2026, 10, 5, 20, 8, 16, DateTimeKind.Utc);
+        viewModel.LoadGroups(new[]
+        {
+            MakeGroupWithDetails(new[]
+            {
+                (@"C:\old.bin", 100L, MimeCategory.Other, t),
+                (@"C:\new.bin", 100L, MimeCategory.Other, t.AddSeconds(2)),
+            }),
+        });
+
+        var keeper = viewModel.Groups[0].Files.Single(f => f.IsKeepRecommended);
+        Assert.Equal(@"C:\new.bin", keeper.Path);
+        Assert.Equal("KEEP — newest", keeper.KeepRecommendedLabel);
     }
 
     [Fact]
@@ -703,31 +840,138 @@ public class ResultsViewModelTests
         Assert.Contains(@"C:\b.jpg", paths);
     }
 
+    // Real temp files, not fake paths: the similarity delete loop (like the
+    // blurry/music/video loops) skips paths that no longer exist on disk - a
+    // file already recycled via another section this batch - so a made-up
+    // C:\a.jpg would exercise the skip path, not the delete path.
     [Fact]
     public async Task DeleteSelectedAsync_RemovesSelectedSimilarityGroupFiles()
     {
-        var fake = new FakeRecycleBinService();
-        var viewModel = new ResultsViewModel(fake);
-        viewModel.LoadSimilarityGroups(new[] { MakeSimilarityGroup(90, @"C:\a.jpg", @"C:\b.jpg") });
-        viewModel.SimilarityGroups[0].Files[0].IsSelected = true;
+        var a = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".jpg");
+        var b = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".jpg");
+        File.WriteAllText(a, "a");
+        File.WriteAllText(b, "b");
+        try
+        {
+            var fake = new FakeRecycleBinService();
+            var viewModel = new ResultsViewModel(fake);
+            viewModel.LoadSimilarityGroups(new[] { MakeSimilarityGroup(90, a, b) });
+            viewModel.SimilarityGroups[0].Files[0].IsSelected = true;
 
-        var failed = await viewModel.DeleteSelectedAsync();
+            var failed = await viewModel.DeleteSelectedAsync();
 
-        Assert.Empty(failed);
-        Assert.Contains(@"C:\a.jpg", fake.DeletedPaths);
+            Assert.Empty(failed);
+            Assert.Contains(a, fake.DeletedPaths);
+        }
+        finally
+        {
+            File.Delete(a);
+            File.Delete(b);
+        }
     }
 
     [Fact]
     public async Task DeleteSelectedAsync_PrunesSimilarityGroup_WhenFewerThanTwoFilesRemain()
     {
+        var a = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".jpg");
+        var b = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".jpg");
+        File.WriteAllText(a, "a");
+        File.WriteAllText(b, "b");
+        try
+        {
+            var fake = new FakeRecycleBinService();
+            var viewModel = new ResultsViewModel(fake);
+            viewModel.LoadSimilarityGroups(new[] { MakeSimilarityGroup(90, a, b) });
+            viewModel.SimilarityGroups[0].Files[0].IsSelected = true;
+
+            await viewModel.DeleteSelectedAsync();
+
+            Assert.Empty(viewModel.SimilarityGroups);
+        }
+        finally
+        {
+            File.Delete(a);
+            File.Delete(b);
+        }
+    }
+
+    // The critical Ignore promise: a file on the ignore list is never deleted,
+    // even when it somehow still carries IsSelected (e.g. it was checked
+    // BEFORE being ignored and nothing cleared the flag).
+    [Fact]
+    public async Task DeleteSelectedAsync_NeverDeletesIgnoredFiles()
+    {
+        var a = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".jpg");
+        var b = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".jpg");
+        File.WriteAllText(a, "a");
+        File.WriteAllText(b, "b");
+        try
+        {
+            IgnoreService.IgnoreFiles(new[] { a });
+            var fake = new FakeRecycleBinService();
+            var viewModel = new ResultsViewModel(fake);
+            viewModel.LoadSimilarityGroups(new[] { MakeSimilarityGroup(90, a, b) });
+            viewModel.SimilarityGroups[0].Files[0].IsSelected = true; // stale tick on the ignored file
+
+            await viewModel.DeleteSelectedAsync();
+
+            Assert.DoesNotContain(a, fake.DeletedPaths);
+            Assert.True(File.Exists(a));
+        }
+        finally
+        {
+            IgnoreService.UnignoreFile(a);
+            File.Delete(a);
+            File.Delete(b);
+        }
+    }
+
+    // QA-2: the exact-duplicates delete loop lacked the ignore guard the other
+    // sections' loops have, relying on Groups always being refiltered after an
+    // ignore. Simulate a stale tick on a file ignored without a refilter.
+    [Fact]
+    public async Task DeleteSelectedAsync_NeverDeletesIgnoredFiles_InExactDuplicateGroups()
+    {
+        const string ignored = @"C:\dupes\keep-me.bin";
         var fake = new FakeRecycleBinService();
         var viewModel = new ResultsViewModel(fake);
-        viewModel.LoadSimilarityGroups(new[] { MakeSimilarityGroup(90, @"C:\a.jpg", @"C:\b.jpg") });
-        viewModel.SimilarityGroups[0].Files[0].IsSelected = true;
+        viewModel.LoadGroups(new[] { MakeGroup(ignored, @"C:\dupes\a.bin", @"C:\dupes\b.bin") });
+        viewModel.Groups[0].Files.Single(f => f.Path == ignored).IsSelected = true;
+        IgnoreService.IgnoreFiles(new[] { ignored });
+        try
+        {
+            await viewModel.DeleteSelectedAsync();
 
-        await viewModel.DeleteSelectedAsync();
+            Assert.DoesNotContain(ignored, fake.DeletedPaths);
+        }
+        finally
+        {
+            IgnoreService.UnignoreFile(ignored);
+        }
+    }
 
-        Assert.Empty(viewModel.SimilarityGroups);
+    // Mass-select must not reach hidden ignored files in the un-refiltered
+    // similarity collection - SelectAll goes through AllSelectableFiles, which
+    // excludes anything on the ignore list.
+    [Fact]
+    public void SelectAll_SkipsIgnoredFiles()
+    {
+        const string ignored = @"C:\photos\keep-me.jpg";
+        IgnoreService.IgnoreFiles(new[] { ignored });
+        try
+        {
+            var viewModel = new ResultsViewModel(new FakeRecycleBinService());
+            viewModel.LoadSimilarityGroups(new[] { MakeSimilarityGroup(90, ignored, @"C:\photos\other.jpg") });
+
+            viewModel.SelectAll();
+
+            Assert.False(viewModel.SimilarityGroups[0].Files.Single(f => f.Path == ignored).IsSelected);
+            Assert.True(viewModel.SimilarityGroups[0].Files.Single(f => f.Path == @"C:\photos\other.jpg").IsSelected);
+        }
+        finally
+        {
+            IgnoreService.UnignoreFile(ignored);
+        }
     }
 
     [Fact]

@@ -44,12 +44,14 @@ public sealed partial class ResultsPage : Page
     {
         _viewModel = new ResultsViewModel(_recycleBinService, App.Store);
         InitializeComponent();
-        GroupsListView.ItemsSource = _flatRows;
         GroupsListView.ItemTemplateSelector = new RowTemplateSelector
         {
+            SectionTemplate = (DataTemplate)Resources["SectionBarRowTemplate"],
+            SubHeaderTemplate = (DataTemplate)Resources["SubHeaderRowTemplate"],
             HeaderTemplate = (DataTemplate)Resources["ResultsHeaderRowTemplate"],
             FileTemplate = (DataTemplate)Resources["ResultsFileRowTemplate"],
         };
+        EnsureSectionRows();
         ComparisonViewer.CloseRequested += (_, _) => ComparisonViewer.Visibility = Visibility.Collapsed;
     }
 
@@ -73,58 +75,364 @@ public sealed partial class ResultsPage : Page
     // live "does the current selection still match Recommended" tracker.
     private bool _recommendedApplied;
 
-    // A group's header row, flattened into _flatRows alongside its own
-    // SelectableFile rows - see RebuildFlatRows's own doc comment for why
-    // this flattening exists at all.
+    // A duplicate group's header row, flattened into the row list alongside its
+    // own SelectableFile rows - see RebuildFlatRows's doc comment.
     private sealed class GroupHeaderRow
     {
         public required DuplicateGroupViewModel Group { get; init; }
+
+        // The owning section's left-edge rail colour (see SectionRow.RailBrush).
+        public Brush? SectionRailBrush { get; init; }
+
+        // Screen readers announce a ListView item by its data item's ToString();
+        // without this they read the class name (QA-6).
+        public override string ToString() => Group.GroupLabel;
     }
 
-    // Picks GroupsListView's per-item template by row kind - GroupHeaderRow
-    // renders the group's swatch/name/copies/frees header, anything else
-    // (a SelectableFile) renders a file row. Built and assigned in code
-    // rather than declared as a XAML resource since GroupHeaderRow is a
-    // private nested type XAML can't reference by name.
+    // A collapsible SECTION bar (Duplicates / Similar photos / … / Ignored). One
+    // instance per section, kept alive across rebuilds so its IsExpanded state
+    // persists. The whole results list is a SINGLE virtualized list of these
+    // plus GroupHeaderRow / SubHeaderRow / SelectableFile rows; collapse and
+    // filter just rebuild that lightweight data list, never touching UI
+    // elements for off-screen rows. INotifyPropertyChanged so the visible bar's
+    // chevron/count update in place on toggle.
+    private sealed class SectionRow : System.ComponentModel.INotifyPropertyChanged
+    {
+        public required string Key { get; init; }
+        public required string Title { get; init; }
+        public required Brush DotBrush { get; init; }
+        public required Brush BarFillBrush { get; init; }
+        public required Brush BarBorderBrush { get; init; }
+
+        // The vertical rail drawn down the left edge of this section's child
+        // rows (same hue as the dot) - what visually ties the children to
+        // their collapsible bar.
+        public required Brush RailBrush { get; init; }
+
+        public string? BadgeText { get; init; }
+        public Brush? BadgeFillBrush { get; init; }
+        public Brush? BadgeBorderBrush { get; init; }
+        public Brush? BadgeTextBrush { get; init; }
+        public bool HasBadge => !string.IsNullOrEmpty(BadgeText);
+
+        private int _fileCount;
+        public int FileCount
+        {
+            get => _fileCount;
+            set { if (_fileCount != value) { _fileCount = value; Raise(nameof(CountLabel)); } }
+        }
+
+        public string CountLabel => $"{FileCount} file{(FileCount == 1 ? "" : "s")}";
+
+        // Screen readers announce a ListView item by its data item's ToString();
+        // without this they read the class name (QA-6).
+        public override string ToString() => $"{Title}, {CountLabel}";
+
+        private bool _isExpanded = true;
+        public bool IsExpanded
+        {
+            get => _isExpanded;
+            set
+            {
+                if (_isExpanded != value)
+                {
+                    _isExpanded = value;
+                    Raise(nameof(ChevronGlyph));
+                    Raise(nameof(AutomationLabel));
+                }
+            }
+        }
+
+        // ▾ open / ▸ closed - reads unambiguously as a collapse control.
+        public string ChevronGlyph => IsExpanded ? "▾" : "▸";
+
+        // Screen-reader name for the bar - announces the collapse state, which
+        // the visual chevron alone doesn't convey through UIA.
+        public string AutomationLabel => $"{Title}, {(IsExpanded ? "expanded" : "collapsed")}";
+
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+        private void Raise(string name) =>
+            PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(name));
+    }
+
+    // A sub-group header inside a section: a look-alike cluster, a song, or the
+    // single card that caps a flat blurry/ignored list. Rounds the card's top.
+    private sealed class SubHeaderRow
+    {
+        public required string Title { get; init; }
+        public string? Hint { get; init; }
+        public Brush? HintFillBrush { get; init; }
+        public Brush? HintBorderBrush { get; init; }
+        public Brush? HintTextBrush { get; init; }
+        public bool HasHint => !string.IsNullOrEmpty(Hint);
+
+        // The owning section's left-edge rail colour (see SectionRow.RailBrush).
+        public Brush? SectionRailBrush { get; init; }
+
+        // Screen readers announce a ListView item by its data item's ToString();
+        // without this they read the class name (QA-6).
+        public override string ToString() => HasHint ? $"{Title}, {Hint}" : Title;
+    }
+
+    // Picks GroupsListView's per-item template by row kind. Built in code rather
+    // than declared in XAML since the row types are private nested types XAML
+    // can't reference by name.
     private sealed class RowTemplateSelector : DataTemplateSelector
     {
+        public required DataTemplate SectionTemplate { get; init; }
+        public required DataTemplate SubHeaderTemplate { get; init; }
         public required DataTemplate HeaderTemplate { get; init; }
         public required DataTemplate FileTemplate { get; init; }
 
-        protected override DataTemplate SelectTemplateCore(object item) =>
-            item is GroupHeaderRow ? HeaderTemplate : FileTemplate;
+        protected override DataTemplate SelectTemplateCore(object item) => item switch
+        {
+            SectionRow => SectionTemplate,
+            SubHeaderRow => SubHeaderTemplate,
+            GroupHeaderRow => HeaderTemplate,
+            _ => FileTemplate,
+        };
 
         protected override DataTemplate SelectTemplateCore(object item, DependencyObject container) =>
             SelectTemplateCore(item);
     }
 
-    // GroupsListView's real ItemsSource - one GroupHeaderRow followed by
-    // that group's own SelectableFile rows, for every group, all in one
-    // flat list. GroupsListView used to bind directly to _viewModel.Groups
-    // and nest a second, non-virtualizing ItemsControl per group for the
-    // file rows - that nested ItemsControl was the root cause of a native
-    // Microsoft.UI.Xaml crash (confirmed via crash-dump analysis) under
-    // fast scrollbar-drag scrolling: the outer ListView's virtualization
-    // was rapidly creating/destroying containers that each carried a whole
-    // second, unvirtualized collection. Flattening to a single level means
-    // GroupsListView's own virtualization is the only one in play.
-    private readonly ObservableCollection<object> _flatRows = new();
+    // The result-type sections and their display order. Duplicates is always
+    // first. The sidebar "SHOW" checklist is built from this list, one checkbox
+    // per section actually present.
+    private static readonly (string Key, string Label)[] SectionDefs =
+    {
+        ("duplicates", "Duplicates"),
+        ("similar", "Similar photos"),
+        ("video", "Similar videos"),
+        ("music", "Duplicate songs"),
+        ("blurry", "Blurry photos"),
+        ("ignored", "Ignored"),
+    };
 
-    // Rebuilds _flatRows from _viewModel.Groups - must run after anything
-    // that changes group/file membership (a fresh load, a filter change, a
-    // deletion), which in this file is exactly the same set of call sites
-    // that already call RefreshSummary() for the same reason, so this is
-    // invoked from there rather than needing its own separate call sites.
+    // Per-section visuals: title, dot colour, and the type badge (fill/border
+    // are alpha-tinted from the base, text is the light shade).
+    private static readonly Dictionary<string, (string Title, uint Dot, string Badge, uint BadgeBase, uint BadgeText)> SectionMeta = new()
+    {
+        ["duplicates"] = ("Duplicates", 0x5B8CFF, "EXACT COPIES", 0x5B8CFF, 0xB9CCFF),
+        ["similar"] = ("Similar photos", 0x8C6EFF, "SIMILAR · NOT IDENTICAL", 0x8C6EFF, 0xB9A5FF),
+        ["video"] = ("Similar videos", 0xB06EFF, "SAME CLIP · DIFFERENT FILE", 0xB06EFF, 0xD3B9FF),
+        ["music"] = ("Duplicate songs", 0x5EE7B7, "SAME SONG · DIFFERENT FILE", 0x5EE7B7, 0x9CF0D0),
+        ["blurry"] = ("Blurry photos", 0xFF9A3D, "LIKELY BLURRY · REVIEW", 0xFF9A3D, 0xFFC78F),
+        ["ignored"] = ("Ignored", 0x6B7699, "KEPT ON PURPOSE", 0x6B7699, 0xB6BFD8),
+    };
+
+    // Which sections the SHOW filter currently includes. Seeded with everything
+    // except "ignored" so the first RebuildFlatRows (before BuildSectionFilters
+    // recomputes this) already shows the normal sections.
+    private readonly HashSet<string> _visibleSections =
+        new(StringComparer.Ordinal) { "duplicates", "similar", "video", "music", "blurry" };
+
+    // The live SectionRow instances (one per key), kept across rebuilds so each
+    // section remembers whether it's expanded.
+    private readonly Dictionary<string, SectionRow> _sections = new(StringComparer.Ordinal);
+
+    private static SolidColorBrush Rgb(uint rgb, byte a = 0xFF) =>
+        new(Color.FromArgb(a, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb));
+
+    // Creates the six SectionRow instances once (idempotent). Every key exists
+    // regardless of whether the scan has that content - RebuildFlatRows skips
+    // empty ones - so a section that only appears later (e.g. "Ignored" after
+    // the user ignores something) always has its row ready.
+    private void EnsureSectionRows()
+    {
+        if (_sections.Count > 0)
+        {
+            return;
+        }
+
+        foreach (var (key, _) in SectionDefs)
+        {
+            var m = SectionMeta[key];
+            _sections[key] = new SectionRow
+            {
+                Key = key,
+                Title = m.Title,
+                DotBrush = Rgb(m.Dot),
+                BarFillBrush = Rgb(m.Dot, 0x1A),
+                BarBorderBrush = Rgb(m.Dot, 0x40),
+                RailBrush = Rgb(m.Dot, 0x8C),
+                BadgeText = m.Badge,
+                BadgeFillBrush = Rgb(m.BadgeBase, 0x24),
+                BadgeBorderBrush = Rgb(m.BadgeBase, 0x66),
+                BadgeTextBrush = Rgb(m.BadgeText),
+            };
+        }
+    }
+
+    // Rebuilds the SINGLE virtualized row list from the view-model - a section
+    // bar, then (if expanded) that section's sub-headers and file rows,
+    // section by section. Runs after anything that changes membership (load,
+    // filter, collapse, deletion). It only touches lightweight DATA objects;
+    // the ListView virtualizes elements, so this stays cheap even for tens of
+    // thousands of files. Assigning a fresh List in one shot (rather than
+    // mutating an ObservableCollection item-by-item) avoids a storm of
+    // per-item CollectionChanged events on every rebuild.
     private void RebuildFlatRows()
     {
-        _flatRows.Clear();
-        foreach (var group in _viewModel.Groups)
+        EnsureSectionRows();
+        var rows = new List<object>();
+
+        foreach (var (key, _) in SectionDefs)
         {
-            _flatRows.Add(new GroupHeaderRow { Group = group });
-            foreach (var file in group.Files)
+            if (!_visibleSections.Contains(key))
             {
-                _flatRows.Add(file);
+                continue;
             }
+
+            var children = BuildSectionChildren(key, out var fileCount);
+            if (fileCount == 0)
+            {
+                continue;
+            }
+
+            var section = _sections[key];
+            section.FileCount = fileCount;
+            rows.Add(section);
+            if (section.IsExpanded)
+            {
+                rows.AddRange(children);
+            }
+        }
+
+        GroupsListView.ItemsSource = rows;
+        EmptyStateText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // Builds one section's child rows (sub-headers + file rows) and reports its
+    // visible file count. Never includes the section bar itself.
+    private List<object> BuildSectionChildren(string key, out int fileCount)
+    {
+        EnsureSectionRows();
+        var rows = new List<object>();
+        fileCount = 0;
+
+        // Every child row carries its section's rail colour - the vertical
+        // stripe down the children's left edge that visually ties them to
+        // their collapsible bar.
+        var rail = _sections[key].RailBrush;
+
+        switch (key)
+        {
+            case "duplicates":
+                // _viewModel.Groups is already filtered + IsLastInGroup-stamped
+                // by ApplyFilters.
+                foreach (var group in _viewModel.Groups)
+                {
+                    rows.Add(new GroupHeaderRow { Group = group, SectionRailBrush = rail });
+                    foreach (var file in group.Files)
+                    {
+                        file.SectionRailBrush = rail;
+                        rows.Add(file);
+                        fileCount++;
+                    }
+                }
+                break;
+
+            case "similar":
+                fileCount += AppendClusters(rows, _viewModel.SimilarityGroups, 0x8C6EFF, 0xB9A5FF, rail);
+                break;
+
+            case "video":
+                fileCount += AppendClusters(rows, _viewModel.VideoGroups, 0xB06EFF, 0xD3B9FF, rail);
+                break;
+
+            case "music":
+                foreach (var group in _viewModel.MusicGroups)
+                {
+                    var visible = VisibleRows(group.Files);
+                    if (visible.Count < 2)
+                    {
+                        continue;
+                    }
+
+                    StampLastInGroup(visible, rail);
+                    rows.Add(new SubHeaderRow
+                    {
+                        Title = group.SongLabel,
+                        Hint = $"{visible.Count} copies",
+                        HintFillBrush = Rgb(0x5EE7B7, 0x24),
+                        HintBorderBrush = Rgb(0x5EE7B7, 0x66),
+                        HintTextBrush = Rgb(0x9CF0D0),
+                        SectionRailBrush = rail,
+                    });
+                    rows.AddRange(visible);
+                    fileCount += visible.Count;
+                }
+                break;
+
+            case "blurry":
+                fileCount += AppendFlatCard(rows, VisibleRows(_viewModel.BlurryPhotos), "Sharpness below your threshold", rail);
+                break;
+
+            case "ignored":
+                var ignored = _viewModel.IgnoredFilesInScan().ToList();
+                foreach (var file in ignored)
+                {
+                    file.IsIgnored = true; // so the row's context menu offers "Stop ignoring"
+                }
+                fileCount += AppendFlatCard(rows, ignored, "Won't appear in future scans", rail);
+                break;
+        }
+
+        return rows;
+    }
+
+    // Similar-photo / similar-video clusters: a sub-header per cluster (rep
+    // filename + match %), then its files.
+    private int AppendClusters(List<object> rows, IEnumerable<SimilarityGroupViewModel> groups, uint hintBase, uint hintText, Brush rail)
+    {
+        var count = 0;
+        foreach (var group in groups)
+        {
+            var visible = VisibleRows(group.Files);
+            if (visible.Count < 2)
+            {
+                continue;
+            }
+
+            StampLastInGroup(visible, rail);
+            rows.Add(new SubHeaderRow
+            {
+                Title = $"{System.IO.Path.GetFileName(visible[0].Path)} + {visible.Count - 1} more",
+                Hint = $"{group.MatchPercent}% match",
+                HintFillBrush = Rgb(hintBase, 0x24),
+                HintBorderBrush = Rgb(hintBase, 0x66),
+                HintTextBrush = Rgb(hintText),
+                SectionRailBrush = rail,
+            });
+            rows.AddRange(visible);
+            count += visible.Count;
+        }
+
+        return count;
+    }
+
+    // A flat, header-less section (blurry / ignored): one capping sub-header,
+    // then all its files as a single card.
+    private int AppendFlatCard(List<object> rows, List<SelectableFile> files, string subtitle, Brush rail)
+    {
+        if (files.Count == 0)
+        {
+            return 0;
+        }
+
+        StampLastInGroup(files, rail);
+        rows.Add(new SubHeaderRow { Title = subtitle, SectionRailBrush = rail });
+        rows.AddRange(files);
+        return files.Count;
+    }
+
+    private static void StampLastInGroup(IReadOnlyList<SelectableFile> files, Brush rail)
+    {
+        for (var i = 0; i < files.Count; i++)
+        {
+            files[i].IsLastInGroup = i == files.Count - 1;
+            files[i].SectionRailBrush = rail;
         }
     }
 
@@ -170,13 +478,31 @@ public sealed partial class ResultsPage : Page
 
             _viewModel.LoadGroups(scanResult.DuplicateGroups);
             _viewModel.LoadSimilarityGroups(scanResult.SimilarityGroups);
+            _viewModel.LoadBlurryPhotos(scanResult.BlurryPhotos);
+            _viewModel.LoadMusicGroups(scanResult.MusicGroups);
+            _viewModel.LoadVideoGroups(scanResult.VideoGroups);
             PopulateCategorySidebar(scanResult);
             PopulateExtensionCombo();
             _suppressFilterControlEvents = false;
 
+            BuildSectionFilters();
             RefreshSummary();
             RefreshSelectedSizeStat();
-            RefreshSimilaritySection();
+        }
+        else if (_loadedResult is not null)
+        {
+            // Same ScanResult re-entering the cached page. The ignore list may
+            // have changed elsewhere in the meantime (Manage Ignored Files,
+            // the Large Files page), and an abnormal removal exit (unexpected
+            // error mid-delete, navigating away from the progress screen)
+            // skips the Completed/OnCancelled refreshes - either way the flat
+            // rows/counts here are stale. Re-derive from data (cheap, no
+            // element construction) so what's shown always matches reality.
+            _viewModel.ClearIgnoredSelections();
+            _viewModel.ApplyFilters();
+            BuildSectionFilters();
+            RefreshSummary();
+            RefreshSelectedSizeStat();
         }
 
         // Applied whenever the caller asks for it, independent of the
@@ -211,15 +537,37 @@ public sealed partial class ResultsPage : Page
     {
         var breakdown = CategoryBreakdownCalculator.Calculate(scanResult.DuplicateGroups);
 
-        var files = scanResult.DuplicateGroups.SelectMany(g => g.Files).ToList();
-        var items = new List<CategorySidebarItem> { new(Category: null, Label: "All") { Count = files.Count } };
-        items.AddRange(breakdown.Select(b => new CategorySidebarItem(b.Category, ChipLabel(b.Category))
-        {
-            Count = files.Count(f => f.Category == b.Category),
-        }));
+        var items = new List<CategorySidebarItem> { new(Category: null, Label: "All") };
+        items.AddRange(breakdown.Select(b => new CategorySidebarItem(b.Category, ChipLabel(b.Category))));
 
         CategorySidebar.ItemsSource = items;
         items[0].IsSelected = true; // "All"
+        RefreshCategoryCounts();
+    }
+
+    // Recounts the CATEGORY checklist from the loaded duplicates, leaving out
+    // ignored files - they're hidden from every section, so counting them made
+    // "All 13 / Images 2" disagree with "Duplicates 11" after an ignore (QA-5).
+    // Updates in place, so the current category selection is kept.
+    private void RefreshCategoryCounts()
+    {
+        if (_loadedResult is null || CategorySidebar.ItemsSource is not IEnumerable<CategorySidebarItem> items)
+        {
+            return;
+        }
+
+        // Per group, like the list itself: drop ignored files, and drop a group
+        // left with one file - its survivor is no longer a duplicate and isn't
+        // shown, so counting it would still disagree with the Duplicates count.
+        var files = _loadedResult.DuplicateGroups
+            .Select(g => g.Files.Where(f => !IgnoreService.IsIgnored(f.Path)).ToList())
+            .Where(visible => visible.Count >= 2)
+            .SelectMany(visible => visible)
+            .ToList();
+        foreach (var item in items)
+        {
+            item.Count = item.Category is { } category ? files.Count(f => f.Category == category) : files.Count;
+        }
     }
 
     // Short chip labels exactly as screen 2g shows them ("Docs"/"Exe", not
@@ -301,304 +649,187 @@ public sealed partial class ResultsPage : Page
     private void RefreshSummary()
     {
         // Every call site here follows a group/file-membership change
-        // (fresh load, filter change, deletion) - the exact moments
-        // _flatRows also needs rebuilding, so this one call covers both.
+        // (fresh load, filter change, deletion) - the exact moments the flat
+        // row list also needs rebuilding, so this one call covers both.
         RebuildFlatRows();
 
         var groupCount = _viewModel.Groups.Count;
         var fileCount = _viewModel.Groups.Sum(g => g.Files.Count);
         var reclaimableBytes = _viewModel.Groups.Sum(g => (long)(g.Files.Count - 1) * g.Files[0].SizeBytes);
 
-        SummaryText.Text = $"{groupCount} group{(groupCount == 1 ? "" : "s")} · "
+        // "duplicate group(s)", not just "group(s)": the list below now holds
+        // several section types, and these numbers cover the Duplicates
+        // section only (each other section shows its own count on its bar).
+        SummaryText.Text = $"{groupCount} duplicate group{(groupCount == 1 ? "" : "s")} · "
             + $"{fileCount} file{(fileCount == 1 ? "" : "s")} · "
             + $"{FileSizeFormatter.Format(reclaimableBytes)} reclaimable";
 
         // Slim per-list-header count next to the Select toolbar.
-        ResultCountText.Text = $"{groupCount} group{(groupCount == 1 ? "" : "s")}";
+        ResultCountText.Text = $"{groupCount} duplicate group{(groupCount == 1 ? "" : "s")}";
     }
 
-    // "Looks-alike photos" (new-screens 4k) - attached to GroupsListView's
-    // own Header rather than a separate sibling control, so it scrolls
-    // together with the main Duplicates list using that ListView's own
-    // virtualization/scrolling instead of needing a second ScrollViewer.
-    // Rebuilt wholesale on every call (group count is expected to be small -
-    // a handful of "looks alike" clusters, not thousands of rows) rather
-    // than incrementally patched, matching the simplicity of this page's
-    // other hand-built sections.
-    private void RefreshSimilaritySection()
+    // Is this section present in the loaded scan at all (independent of the SHOW
+    // filter)? Drives which SHOW checkboxes get drawn.
+    private bool SectionPresent(string key) => key switch
     {
-        GroupsListView.Header = _viewModel.SimilarityGroups.Count == 0
-            ? null
-            : BuildSimilaritySection();
-    }
+        "duplicates" => (_loadedResult?.DuplicateGroups.Count ?? 0) > 0,
+        "similar" => _viewModel.SimilarityGroups.Count > 0,
+        "video" => _viewModel.VideoGroups.Count > 0,
+        "music" => _viewModel.MusicGroups.Count > 0,
+        "blurry" => _viewModel.BlurryPhotos.Count > 0,
+        "ignored" => _viewModel.IgnoredFilesInScan().Any(),
+        _ => false,
+    };
 
-    private UIElement BuildSimilaritySection()
+    // (Re)draws the sidebar SHOW checklist - one row per section present in this
+    // scan, styled exactly like the CATEGORY checklist (check box + colour dot
+    // matching the section bar + live file count). Everything but "ignored"
+    // starts checked; the user's choices are preserved across rebuilds.
+    private void BuildSectionFilters()
     {
-        var resources = Application.Current.Resources;
-
-        var section = new StackPanel { Spacing = 12, Margin = new Thickness(0, 0, 0, 20) };
-
-        var titleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center };
-        titleRow.Children.Add(new TextBlock
+        var prior = new Dictionary<string, bool>(StringComparer.Ordinal);
+        if (SectionSidebar.ItemsSource is IEnumerable<SectionFilterItem> existing)
         {
-            Text = "Looks-alike photos",
-            FontFamily = (FontFamily)resources["DisplayFontFamily"],
-            FontSize = 18,
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)resources["TextHeadingBrush"],
-        });
-        var phaseBadge = new Border
-        {
-            Padding = new Thickness(9, 3, 9, 3),
-            // CornerRadius=999 bulges into an ellipse on a short element in
-            // WinUI (it doesn't clamp to height/2 like CSS) - use the shared
-            // pill helper that pins the radius to the badge's live height/2.
-            Background = new SolidColorBrush(Color.FromArgb(0x24, 0x8C, 0x6E, 0xFF)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(0x66, 0x8C, 0x6E, 0xFF)),
-            BorderThickness = new Thickness(1),
-            VerticalAlignment = VerticalAlignment.Center,
-            Child = new TextBlock
+            foreach (var item in existing)
             {
-                Text = "SIMILAR, NOT IDENTICAL",
-                FontFamily = (FontFamily)resources["BodyFontFamily"],
-                FontSize = 10,
-                FontWeight = FontWeights.ExtraBold,
-                Foreground = new SolidColorBrush(Color.FromArgb(0xFF, 0xB9, 0xA5, 0xFF)),
-            },
-        };
-        Quickening.App.Controls.PillCornerRadius.SetEnabled(phaseBadge, true);
-        titleRow.Children.Add(phaseBadge);
-        section.Children.Add(titleRow);
-
-        foreach (var group in _viewModel.SimilarityGroups)
-        {
-            section.Children.Add(BuildSimilarityGroupCard(group));
+                prior[item.Key] = item.IsSelected;
+            }
         }
 
-        return section;
-    }
+        _visibleSections.Clear();
+        var items = new List<SectionFilterItem>();
 
-    private UIElement BuildSimilarityGroupCard(SimilarityGroupViewModel group)
-    {
-        var resources = Application.Current.Resources;
-
-        var card = new Border
+        foreach (var (key, _) in SectionDefs)
         {
-            CornerRadius = (CornerRadius)resources["RadiusCard"],
-            Background = new SolidColorBrush(Color.FromArgb(0x09, 0xFF, 0xFF, 0xFF)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(0x12, 0xFF, 0xFF, 0xFF)),
-            BorderThickness = new Thickness(1),
-        };
+            if (!SectionPresent(key))
+            {
+                continue;
+            }
 
-        var outer = new StackPanel();
+            // Count the section's currently-visible files (skips ignored + the
+            // sub-group-of-one clusters), so a "present but nothing to show"
+            // section (e.g. every similar cluster collapsed to one file) is
+            // omitted rather than listed with a 0.
+            var count = SectionVisibleCount(key);
+            if (count == 0)
+            {
+                continue;
+            }
 
-        var header = new Grid { ColumnSpacing = 12, Margin = new Thickness(18, 13, 18, 13) };
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var on = prior.TryGetValue(key, out var was) ? was : key != "ignored";
+            if (on)
+            {
+                _visibleSections.Add(key);
+            }
 
-        var swatch = new Ellipse { Width = 9, Height = 9, Fill = new SolidColorBrush(CategoryColors.For(MimeCategory.Image)), VerticalAlignment = VerticalAlignment.Center };
-        Grid.SetColumn(swatch, 0);
-
-        var labelText = new TextBlock
-        {
-            Text = group.GroupLabel,
-            FontFamily = (FontFamily)resources["BodyFontFamily"],
-            FontSize = 14,
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)resources["TextBodyBrush"],
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        Grid.SetColumn(labelText, 1);
-
-        var meter = BuildMatchMeter(group.MatchPercent);
-        Grid.SetColumn(meter, 2);
-
-        var compareButton = new Button
-        {
-            Content = "Compare side by side",
-            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-            BorderThickness = new Thickness(0),
-            Padding = new Thickness(0),
-            Foreground = (Brush)resources["AccentLightBrush"],
-            FontFamily = (FontFamily)resources["BodyFontFamily"],
-            FontSize = 12,
-            FontWeight = FontWeights.Bold,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        compareButton.Click += (_, _) => ComparisonViewer.ShowGroup(group.Files.ToList(), isExactDuplicateGroup: false);
-        Grid.SetColumn(compareButton, 4);
-
-        header.Children.Add(swatch);
-        header.Children.Add(labelText);
-        header.Children.Add(meter);
-        header.Children.Add(compareButton);
-        outer.Children.Add(header);
-
-        for (var i = 0; i < group.Files.Count; i++)
-        {
-            outer.Children.Add(BuildSimilarityFileRow(group.Files[i], isLast: i == group.Files.Count - 1));
+            var meta = SectionMeta[key];
+            items.Add(new SectionFilterItem(key, meta.Title, Rgb(meta.Dot)) { Count = count, IsSelected = on });
         }
 
-        card.Child = outer;
-        return card;
+        SectionSidebar.ItemsSource = items;
+
+        // Hide the whole SHOW group when there's only one kind of result (just
+        // duplicates) - a lone "Duplicates" toggle is noise.
+        SectionFilterGroup.Visibility = items.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    // Small gradient meter bar + "94% match" text (4k) - not a real
-    // progress control, just a two-layer Border (track + a narrower filled
-    // Border on top sized to MatchPercent) since this never animates or
-    // updates in place.
-    private static FrameworkElement BuildMatchMeter(int matchPercent)
+    // Visible file count for a section (ignore + <2-cluster filtering applied),
+    // without emitting rows.
+    private int SectionVisibleCount(string key)
     {
-        var resources = Application.Current.Resources;
+        BuildSectionChildren(key, out var count);
+        return count;
+    }
 
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+    private void SectionItem_Click(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not SectionFilterItem item)
+        {
+            return;
+        }
 
-        var track = new Grid { Width = 92, Height = 6 };
-        track.Children.Add(new Border
+        item.IsSelected = !item.IsSelected;
+        if (item.IsSelected)
         {
-            CornerRadius = new CornerRadius(3),
-            Background = new SolidColorBrush(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF)),
-        });
-        track.Children.Add(new Border
+            _visibleSections.Add(item.Key);
+        }
+        else
         {
-            CornerRadius = new CornerRadius(3),
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Width = 92 * Math.Clamp(matchPercent, 0, 100) / 100.0,
-            Background = new LinearGradientBrush
+            _visibleSections.Remove(item.Key);
+        }
+
+        // Every section lives in the one virtualized list - a single rebuild
+        // adds/drops it. No per-kind branching, no element construction.
+        RebuildFlatRows();
+    }
+
+    // Fold/unfold a section from its bar. Rebuilds the flat list (data only, so
+    // instant) and keeps the clicked bar in view so the list doesn't jump.
+    private void SectionHeader_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: SectionRow section })
+        {
+            return;
+        }
+
+        var hadFocus = sender is Control { FocusState: not FocusState.Unfocused };
+        section.IsExpanded = !section.IsExpanded;
+        RebuildFlatRows();
+        GroupsListView.ScrollIntoView(section, ScrollIntoViewAlignment.Leading);
+
+        // The rebuild recycles the bar's container, so focus fell through to
+        // the next focusable control - Remove Selected, where a keyboard user's
+        // next Enter would start a removal (QA-8). Once the rebuilt row is
+        // realized, hand focus back to this section's bar.
+        if (hadFocus)
+        {
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
             {
-                StartPoint = new Windows.Foundation.Point(0, 0),
-                EndPoint = new Windows.Foundation.Point(1, 0),
-                GradientStops =
+                if (GroupsListView.ContainerFromItem(section) is DependencyObject container
+                    && FindDescendant<Button>(container) is { } bar)
                 {
-                    new GradientStop { Color = Color.FromArgb(0xFF, 0x8C, 0x6E, 0xFF), Offset = 0 },
-                    new GradientStop { Color = Color.FromArgb(0xFF, 0xFF, 0x7A, 0xB6), Offset = 1 },
-                },
-            },
-        });
-        row.Children.Add(track);
-
-        row.Children.Add(new TextBlock
-        {
-            Text = $"{matchPercent}% match",
-            FontFamily = (FontFamily)resources["DisplayFontFamily"],
-            FontSize = 13,
-            FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(Color.FromArgb(0xFF, 0xFF, 0x7A, 0xB6)),
-            VerticalAlignment = VerticalAlignment.Center,
-        });
-
-        return row;
+                    bar.Focus(FocusState.Programmatic);
+                }
+            });
+        }
     }
 
-    private UIElement BuildSimilarityFileRow(SelectableFile file, bool isLast)
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
     {
-        var resources = Application.Current.Resources;
-
-        var row = new Grid { ColumnSpacing = 14, Margin = new Thickness(18, 10, 18, 10) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(78) });
-
-        var checkBox = new CheckBox
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
         {
-            Width = 20,
-            Height = 20,
-            Padding = new Thickness(0),
-            MinWidth = 0,
-            MinHeight = 0,
-            IsChecked = file.IsSelected,
-            IsEnabled = !file.IsOnNetworkDrive,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        checkBox.Checked += (_, _) => { file.IsSelected = true; RefreshSelectedSizeStat(); };
-        checkBox.Unchecked += (_, _) => { file.IsSelected = false; RefreshSelectedSizeStat(); };
-        Grid.SetColumn(checkBox, 0);
-
-        var thumbnailBorder = new Border
-        {
-            Width = 44,
-            Height = 44,
-            CornerRadius = (CornerRadius)resources["RadiusThumbnail"],
-            Background = (Brush)resources["CategoryImageFillBrush"],
-        };
-        if (file.ThumbnailSource is { } thumbnail)
-        {
-            thumbnailBorder.Child = new Image { Source = thumbnail, Stretch = Stretch.UniformToFill };
-        }
-        Grid.SetColumn(thumbnailBorder, 1);
-
-        var nameStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 1 };
-        nameStack.Children.Add(new TextBlock
-        {
-            Text = System.IO.Path.GetFileName(file.Path),
-            FontFamily = (FontFamily)resources["BodyFontFamily"],
-            FontSize = 13.5,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = (Brush)resources["TextBodyBrush"],
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        });
-        nameStack.Children.Add(new TextBlock
-        {
-            Text = System.IO.Path.GetDirectoryName(file.Path) ?? "",
-            FontFamily = (FontFamily)resources["MonoFontFamily"],
-            FontSize = 11.5,
-            Foreground = (Brush)resources["TextDisabledHintBrush"],
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        });
-        Grid.SetColumn(nameStack, 2);
-
-        var hintPill = new Border
-        {
-            Padding = new Thickness(9, 3, 9, 3),
-            // CornerRadius=999 bulges to an ellipse on a short element in
-            // WinUI; the pill helper pins it to the badge's live height/2.
-            Background = new SolidColorBrush(Color.FromArgb(0x1A, 0x7F, 0xAD, 0xFF)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(0x59, 0x7F, 0xAD, 0xFF)),
-            BorderThickness = new Thickness(1),
-            VerticalAlignment = VerticalAlignment.Center,
-            Visibility = string.IsNullOrEmpty(file.HintLabel) ? Visibility.Collapsed : Visibility.Visible,
-            Child = new TextBlock
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
             {
-                Text = file.HintLabel ?? "",
-                FontFamily = (FontFamily)resources["BodyFontFamily"],
-                FontSize = 10,
-                FontWeight = FontWeights.ExtraBold,
-                Foreground = new SolidColorBrush(Color.FromArgb(0xFF, 0x7F, 0xAD, 0xFF)),
-            },
-        };
-        Quickening.App.Controls.PillCornerRadius.SetEnabled(hintPill, true);
-        Grid.SetColumn(hintPill, 3);
+                return match;
+            }
 
-        var sizeText = new TextBlock
+            if (FindDescendant<T>(child) is { } nested)
+            {
+                return nested;
+            }
+        }
+
+        return null;
+    }
+
+    // Stamps each file's IsIgnored and returns only the non-ignored ones -
+    // ignored files are surfaced in their own "Ignored" section, not inline.
+    // The returned list references the same SelectableFile instances, so
+    // selection/deletion still act on the originals.
+    private List<SelectableFile> VisibleRows(IEnumerable<SelectableFile> files)
+    {
+        var result = new List<SelectableFile>();
+        foreach (var file in files)
         {
-            Text = FileSizeFormatter.Format(file.SizeBytes),
-            FontFamily = (FontFamily)resources["MonoFontFamily"],
-            FontSize = 12.5,
-            Foreground = (Brush)resources["TextSecondaryBrush"],
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        Grid.SetColumn(sizeText, 4);
+            file.IsIgnored = IgnoreService.IsIgnored(file.Path);
+            if (!file.IsIgnored)
+            {
+                result.Add(file);
+            }
+        }
 
-        row.Children.Add(checkBox);
-        row.Children.Add(thumbnailBorder);
-        row.Children.Add(nameStack);
-        row.Children.Add(hintPill);
-        row.Children.Add(sizeText);
-
-        return new Border
-        {
-            BorderBrush = new SolidColorBrush(Color.FromArgb(0x0A, 0xFF, 0xFF, 0xFF)),
-            BorderThickness = new Thickness(0, isLast ? 0 : 1, 0, 0),
-            Child = row,
-        };
+        return result;
     }
 
     // Applying filters rebuilds every group view-model and the whole
@@ -651,6 +882,8 @@ public sealed partial class ResultsPage : Page
         ExtensionCombo.SelectedIndex = -1;  // "any"
         ModifiedAfterPicker.Date = null;
         ModifiedBeforePicker.Date = null;
+        ClearModifiedAfterButton.Visibility = Visibility.Collapsed;
+        ClearModifiedBeforeButton.Visibility = Visibility.Collapsed;
         PathContainsBox.Text = "";
     }
 
@@ -667,6 +900,13 @@ public sealed partial class ResultsPage : Page
         ExtensionCombo.SelectedIndex = -1; // "any"
     }
 
+    // Clear just one end of the MODIFIED range (QA-19) - previously only
+    // "Clear all" could undo a date. Setting Date raises DateChanged, which
+    // runs FilterChanged like any other filter edit.
+    private void ClearModifiedAfter_Click(object sender, RoutedEventArgs e) => ModifiedAfterPicker.Date = null;
+
+    private void ClearModifiedBefore_Click(object sender, RoutedEventArgs e) => ModifiedBeforePicker.Date = null;
+
     private void SyncFiltersFromControlsAndApply()
     {
         _viewModel.MinSizeBytes = SizeFieldToBytes(MinSizeValueBox.Text, MinSizeUnitCombo);
@@ -674,6 +914,9 @@ public sealed partial class ResultsPage : Page
         _viewModel.MinGroupSize = SelectedCopies(CopiesCombo);
         _viewModel.ModifiedAfter = ModifiedAfterPicker.Date?.Date;
         _viewModel.ModifiedBefore = ModifiedBeforePicker.Date?.Date;
+        // Each date's ✕ shows only while that date is set (QA-19).
+        ClearModifiedAfterButton.Visibility = ModifiedAfterPicker.Date is null ? Visibility.Collapsed : Visibility.Visible;
+        ClearModifiedBeforeButton.Visibility = ModifiedBeforePicker.Date is null ? Visibility.Collapsed : Visibility.Visible;
         _viewModel.PathContains = string.IsNullOrWhiteSpace(PathContainsBox.Text) ? null : PathContainsBox.Text;
         _viewModel.ExtensionFilter = (ExtensionCombo.SelectedItem as ComboBoxItem)?.Content as string;
 
@@ -752,6 +995,15 @@ public sealed partial class ResultsPage : Page
         RefreshSelectedSizeStat();
     }
 
+    // "Keep best (similar photos)" (F3) - in each look-alike group, selects
+    // every copy except the best (highest resolution, then largest) for
+    // removal. A manual opt-in, since similar photos are never auto-selected.
+    private void KeepBestSimilar_Click(object sender, RoutedEventArgs e)
+    {
+        _viewModel.SelectAllButBestInSimilarityGroups();
+        RefreshSelectedSizeStat();
+    }
+
     // Export CSV (new-screens 4i - shown as "PHASE 2" in the mockup, built
     // for real per this batch's "everything gets built, no placeholders"
     // decision). Writes exactly the currently-VISIBLE (filtered) files, not
@@ -776,7 +1028,10 @@ public sealed partial class ResultsPage : Page
         try
         {
             var csv = BuildDuplicatesCsv(_viewModel.Groups);
-            await File.WriteAllTextAsync(result.Path, csv);
+            // UTF-8 WITH a byte-order mark: Excel opens a BOM-less .csv in the
+            // ANSI code page, which turned "KEEP — newest" into "KEEP â€” newest"
+            // (and would mangle any non-ASCII file path) - QA-18.
+            await File.WriteAllTextAsync(result.Path, csv, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -835,6 +1090,16 @@ public sealed partial class ResultsPage : Page
     // most spreadsheet tools produce/expect.
     private static string CsvField(string value)
     {
+        // Formula-injection hardening: a cell starting with = + - @ (or a
+        // stray tab/CR) executes as a formula when the export is opened in
+        // Excel/Sheets. File names are attacker-influenced, so neutralize by
+        // prefixing an apostrophe and force-quoting the field.
+        if (value.Length > 0 && value[0] is '=' or '+' or '-' or '@' or '\t' or '\r')
+        {
+            value = "'" + value;
+            return "\"" + value.Replace("\"", "\"\"") + "\"";
+        }
+
         if (value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) < 0)
         {
             return value;
@@ -884,12 +1149,25 @@ public sealed partial class ResultsPage : Page
         }
 
         var group = _viewModel.Groups.FirstOrDefault(g => g.Files.Contains(file));
-        if (group is null)
+        if (group is not null)
         {
+            ComparisonViewer.ShowGroup(group.Files.ToList());
             return;
         }
 
-        ComparisonViewer.ShowGroup(group.Files.ToList());
+        // Similar-photo rows live in SimilarityGroups, not Groups - tapping one
+        // opens the whole look-alike set side by side, same as a duplicate group.
+        var similarGroup = _viewModel.SimilarityGroups.FirstOrDefault(g => g.Files.Contains(file));
+        if (similarGroup is not null)
+        {
+            ComparisonViewer.ShowGroup(similarGroup.Files.ToList(), isExactDuplicateGroup: false);
+            return;
+        }
+
+        // Any other row with no group - a Blurry-photos row (F9), or a future
+        // flat list - opens just that single file in the viewer, rather than
+        // silently doing nothing.
+        ComparisonViewer.ShowGroup(new[] { file });
     }
 
     // Confirm-then-open for file types with no in-app preview. Names the
@@ -1065,9 +1343,9 @@ public sealed partial class ResultsPage : Page
                 // there (refreshed) instead of ProgressPage's default
                 // navigate-home, which would strand the user with no easy
                 // path back to the results they were just working through.
+                BuildSectionFilters();
                 RefreshSummary();
                 RefreshSelectedSizeStat();
-                RefreshSimilaritySection();
                 ((MainWindow)App.MainWindowInstance!).ShowResults(_loadedResult!);
             },
             Completed: async outcomeObj =>
@@ -1084,9 +1362,9 @@ public sealed partial class ResultsPage : Page
                 // stale pre-removal numbers after every fully-successful
                 // removal (SummaryText/SelectedSizeText are plain x:Name
                 // TextBlocks, not bound to anything live).
+                BuildSectionFilters();
                 RefreshSummary();
                 RefreshSelectedSizeStat();
-                RefreshSimilaritySection();
 
                 if (outcome.Failed.Count == 0)
                 {
@@ -1515,13 +1793,76 @@ public sealed partial class ResultsPage : Page
             return;
         }
 
+        var ignored = target.DataContext is SelectableFile { IsIgnored: true };
         foreach (var item in flyout.Items)
         {
-            if (item is MenuFlyoutItem menuItem)
+            if (item is not MenuFlyoutItem menuItem)
             {
-                menuItem.DataContext = target.DataContext;
+                continue;
             }
+
+            menuItem.DataContext = target.DataContext;
+            // Show "Ignore…" for a normal file, "Remove from ignore list" for one
+            // that's already ignored - never both.
+            menuItem.Visibility = (menuItem.Tag as string) switch
+            {
+                "unignore" => ignored ? Visibility.Visible : Visibility.Collapsed,
+                "ignore-file" or "ignore-folder" => ignored ? Visibility.Collapsed : Visibility.Visible,
+                _ => Visibility.Visible,
+            };
         }
+    }
+
+    private void IgnoreFile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuFlyoutItem { DataContext: SelectableFile file })
+        {
+            ApplyIgnoreChange(() => IgnoreService.IgnoreFiles(new[] { file.Path }));
+        }
+    }
+
+    private void IgnoreFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuFlyoutItem { DataContext: SelectableFile file }
+            && System.IO.Path.GetDirectoryName(file.Path) is { } folder)
+        {
+            ApplyIgnoreChange(() => IgnoreService.IgnoreFolder(folder));
+        }
+    }
+
+    private void UnignoreFile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuFlyoutItem { DataContext: SelectableFile file })
+        {
+            ApplyIgnoreChange(() => IgnoreService.UnignoreFile(file.Path));
+        }
+    }
+
+    // "Ignore selected" - the checked files across every section.
+    private void IgnoreSelected_Click(object sender, RoutedEventArgs e)
+    {
+        var paths = _viewModel.SelectedFilePaths();
+        if (paths.Count > 0)
+        {
+            ApplyIgnoreChange(() => IgnoreService.IgnoreFiles(paths));
+        }
+    }
+
+    // After any ignore-list change, drop the selection of anything that just
+    // became ignored (a checked file must never carry its checkmark into
+    // Remove Selected after the user said "keep this"), re-derive the visible
+    // results, rebuild the SHOW checklist (the "Ignored" row may
+    // appear/disappear), refresh the flat row list, and refresh the stats so
+    // the change appears immediately.
+    private void ApplyIgnoreChange(Action mutate)
+    {
+        mutate();
+        _viewModel.ClearIgnoredSelections();
+        _viewModel.ApplyFilters();
+        BuildSectionFilters();
+        RefreshCategoryCounts();
+        RefreshSummary();
+        RefreshSelectedSizeStat();
     }
 
     private void OpenFile_Click(object sender, RoutedEventArgs e)
@@ -1563,6 +1904,45 @@ public sealed partial class ResultsPage : Page
     /// mutates it - the same reason KnownFolderTile.IsSelected in
     /// HomePage.xaml.cs (Task 4) isn't a record either.
     /// </summary>
+    // Backs one row of the sidebar SHOW checklist - same shape as
+    // CategorySidebarItem (so it drops into the identical ItemTemplate), but
+    // keyed by section instead of MIME category and always carrying a swatch.
+    private sealed class SectionFilterItem : System.ComponentModel.INotifyPropertyChanged
+    {
+        private bool _isSelected;
+
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
+        public string Key { get; }
+        public string Label { get; }
+        public SolidColorBrush SwatchBrush { get; }
+
+        // Screen readers announce a ListView item by its data item's ToString();
+        // without this they read the class name (QA-6).
+        public override string ToString() => Label;
+
+        public SectionFilterItem(string key, string label, SolidColorBrush swatch)
+        {
+            Key = key;
+            Label = label;
+            SwatchBrush = swatch;
+        }
+
+        public int Count { get; init; }
+        public string CountText => Count.ToString();
+        public bool HasSwatch => true;
+
+        public bool IsSelected
+        {
+            get => _isSelected;
+            set
+            {
+                _isSelected = value;
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsSelected)));
+            }
+        }
+    }
+
     private sealed class CategorySidebarItem : System.ComponentModel.INotifyPropertyChanged
     {
         private bool _isSelected;
@@ -1578,10 +1958,27 @@ public sealed partial class ResultsPage : Page
             this.Label = Label;
         }
 
-        // File count for this category in the loaded results (total for "All"),
-        // shown at the right of each checklist row.
-        public int Count { get; init; }
+        // File count for this category in the loaded results, ignored files
+        // excluded (total for "All"), shown at the right of each checklist row.
+        // Settable + notifying: an ignore change recounts in place (QA-5).
+        private int _count;
+
+        public int Count
+        {
+            get => _count;
+            set
+            {
+                _count = value;
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Count)));
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(CountText)));
+            }
+        }
+
         public string CountText => Count.ToString();
+
+        // Screen readers announce a ListView item by its data item's ToString();
+        // without this they read the class name (QA-6).
+        public override string ToString() => $"{Label}, {Count} file{(Count == 1 ? "" : "s")}";
 
         public bool HasSwatch => Category is not null;
 

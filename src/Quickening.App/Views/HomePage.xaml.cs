@@ -71,12 +71,12 @@ public sealed partial class HomePage : Page
 
     private readonly DispatcherQueue _dispatcherQueue;
 
-    // Session-scoped (static): the app remembers the last-used scan mode and
-    // look-alike choice while it stays open, so returning Home doesn't reset
-    // to Duplicates every time. NOT persisted across launches - a fresh
-    // launch starts on Duplicates, by design.
+    // Session-scoped (static): the app remembers the last-used scan mode while
+    // it stays open, so returning Home doesn't reset to Duplicates every time.
+    // NOT persisted across launches - a fresh launch starts on Duplicates, by
+    // design. (The look-alike / deep-scan opt-ins now persist in AppSettings
+    // via the Advanced Options overlay, not a session field.)
     private static ScanMode _lastMode = ScanMode.Duplicates;
-    private static bool _lastIncludeSimilar;
 
     private ScanMode _mode = _lastMode;
     private string? _selectedFolderPath;
@@ -120,10 +120,6 @@ public sealed partial class HomePage : Page
         ThresholdSlider.Maximum = ThresholdTicks.Count - 1;
         ThresholdSlider.Value = DefaultTickIndex;
         ThresholdValueText.Text = EffectiveThresholdLabel();
-
-        // Restore the session's last look-alike choice (mode is already
-        // restored via the _mode = _lastMode field initializer).
-        IncludeSimilarToggle.IsOn = _lastIncludeSimilar;
 
         // Fresh random hero line on each load (HomePage isn't cached, so this
         // runs every time the user lands on Home).
@@ -197,6 +193,19 @@ public sealed partial class HomePage : Page
 
             if (prefill.AutoStart)
             {
+                // Yield until Home's own navigation has completed: this runs
+                // inside OnNavigatedTo, and a Frame.Navigate to ProgressPage
+                // issued from there is silently dropped - the scan never ran
+                // while the claimed scan slot stayed held, so every later scan
+                // was refused with "A scan is already running" (QA-14).
+                var started = new TaskCompletionSource();
+                if (!_dispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () => started.SetResult()))
+                {
+                    return;
+                }
+
+                await started.Task;
+
                 var folder = _selectedFolderPath ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
                 if (_mode == ScanMode.LargeFiles)
@@ -239,7 +248,36 @@ public sealed partial class HomePage : Page
 
         _selectedFolderPath = folderPath;
         _selectedFolderLabel = GetFolderLabel(folderPath);
+        SetBrowseSelected(true, _selectedFolderLabel);
         UpdateCtaText();
+    }
+
+    // Moves the "selected" checkmark onto the Browse affordance (accent border +
+    // tinted fill + folder name) for a custom pick, or back to its neutral
+    // drop-zone look when a known-folder tile owns the selection instead. Keeps
+    // the checkmark from ever sitting on a shortcut the user didn't choose.
+    private void SetBrowseSelected(bool selected, string? label = null)
+    {
+        BrowseCheckBadge.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
+        BrowsePlusGlyph.Visibility = selected ? Visibility.Collapsed : Visibility.Visible;
+
+        var resources = Application.Current.Resources;
+        if (selected)
+        {
+            BrowseLabel.Text = $"\U0001F4C1 {label}";
+            BrowseLabel.Foreground = (Microsoft.UI.Xaml.Media.Brush)resources["TextBodyEmphasisBrush"];
+            BrowseBorderRect.Stroke = (Microsoft.UI.Xaml.Media.Brush)resources["AccentBrush"];
+            BrowseBorderRect.StrokeDashArray = null;
+            BrowseBorderRect.Fill = (Microsoft.UI.Xaml.Media.Brush)resources["AccentSelectedFillBrush"];
+        }
+        else
+        {
+            BrowseLabel.Text = "or drop / browse any folder";
+            BrowseLabel.Foreground = (Microsoft.UI.Xaml.Media.Brush)resources["TextMutedBrush"];
+            BrowseBorderRect.Stroke = (Microsoft.UI.Xaml.Media.Brush)resources["SecondaryButtonBorderBrush"];
+            BrowseBorderRect.StrokeDashArray = new Microsoft.UI.Xaml.Media.DoubleCollection { 4, 3 };
+            BrowseBorderRect.Fill = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        }
     }
 
     // Click handler for BOTH ItemsControls' per-tile Button (wired in XAML
@@ -258,6 +296,43 @@ public sealed partial class HomePage : Page
         SelectTile(tile);
     }
 
+    // Wide-tile hover: fade the qkTileHover overlay in/out. Done via an overlay
+    // (not the Button's own pointer-over background) because the tile's asymmetric
+    // badge-overflow padding makes a button-level fill sit off-centre.
+    private void Tile_PointerEntered(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+        => SetTileHoverOpacity(sender, 1);
+
+    private void Tile_PointerExited(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+        => SetTileHoverOpacity(sender, 0);
+
+    private static void SetTileHoverOpacity(object sender, double opacity)
+    {
+        if (sender is DependencyObject root && FindByTag(root, "qkTileHover") is Border overlay)
+        {
+            overlay.Opacity = opacity;
+        }
+    }
+
+    private static Border? FindByTag(DependencyObject root, string tag)
+    {
+        var count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is Border b && (b.Tag as string) == tag)
+            {
+                return b;
+            }
+
+            if (FindByTag(child, tag) is { } found)
+            {
+                return found;
+            }
+        }
+
+        return null;
+    }
+
     private KnownFolderTile? _selectedTile;
     private List<KnownFolderTile> _tiles = new();
 
@@ -266,6 +341,7 @@ public sealed partial class HomePage : Page
         _selectedTile = tile;
         _selectedFolderPath = tile.Path;
         _selectedFolderLabel = tile.Name;
+        SetBrowseSelected(false); // a shortcut owns the selection now, not Browse
         UpdateCtaText();
 
         // Each tile's Border in the DataTemplate binds its selected-state
@@ -295,9 +371,9 @@ public sealed partial class HomePage : Page
         UpdateModeVisuals();
     }
 
-    private void IncludeSimilar_Changed(object sender, RoutedEventArgs e)
+    private async void AdvancedOptions_Click(object sender, RoutedEventArgs e)
     {
-        _lastIncludeSimilar = IncludeSimilarToggle.IsOn;
+        await AdvancedOptionsDialog.ShowAsync(XamlRoot);
     }
 
     private void UpdateModeVisuals()
@@ -306,8 +382,8 @@ public sealed partial class HomePage : Page
         DuplicatesTilesPanel.Visibility = isDuplicates ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
         LargeFilesTilesPanel.Visibility = isDuplicates ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
         ThresholdCard.Visibility = isDuplicates ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
-        // Look-alike matching only applies to a Duplicates scan.
-        IncludeSimilarRow.Visibility = isDuplicates ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+        // Advanced options (look-alike / deep matching) only apply to a Duplicates scan.
+        AdvancedOptionsRow.Visibility = isDuplicates ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
 
         // Segmented-pill selected/unselected recolor - done directly here
         // in code (rather than via a Style/converter) since these are
@@ -410,15 +486,13 @@ public sealed partial class HomePage : Page
                 return;
             }
 
-            // PickFolderResult (Microsoft.Windows.Storage.Pickers, the
-            // WindowsAppSDK picker required for this unpackaged app - see the
-            // comment on the classic-picker COMException this app already hit
-            // elsewhere) exposes Path only, not Name (unlike the classic
-            // Windows.Storage.StorageFolder) - derive the display label from
-            // the path's leaf segment instead.
-            _selectedFolderPath = folder.Path;
-            _selectedFolderLabel = GetFolderLabel(folder.Path);
-            UpdateCtaText();
+            // Route through SelectFolderPath so the selection state lands in the
+            // right place: if the picked folder happens to be one of the six
+            // shortcuts, THAT tile lights up (and Browse stays neutral); any
+            // other folder clears every tile and moves the checkmark onto the
+            // Browse affordance itself (see SetBrowseSelected) - so a shortcut
+            // is never left highlighted when the user picked something else.
+            SelectFolderPath(folder.Path);
         }
         finally
         {
@@ -550,41 +624,59 @@ public sealed partial class HomePage : Page
         };
     }
 
-    // new-screens 4m: a quick metadata-only pre-pass (FileEnumerator.
-    // PreviewCloudPlaceholders - no hashing, same cost class as a Large
-    // Files scan's own walk) counts OneDrive/Dropbox/Google Drive
-    // "online-only" placeholder files before committing to a real scan.
-    // Returns null if the user cancelled at the warning dialog - the two
-    // callers treat that as "don't scan at all". A folder with no
-    // placeholders skips the dialog entirely and returns false immediately.
-    private async Task<bool?> CheckCloudPlaceholdersAsync(string folderPath)
+    // Shows the OneDrive/Dropbox/Google-Drive "online-only files" prompt for a
+    // placeholder count the SINGLE enumeration pass already gathered
+    // (ScanOrchestrator.EnumerateForScan) - it does NOT walk the tree itself, so
+    // a scan walks the tree exactly once (was twice: a preview walk + the scan).
+    // Returns whether to exclude placeholders, or throws OperationCanceledException
+    // when the user declines to scan (ProgressPage routes that home, same as Stop).
+    // Video-similarity pass (F11): extract + hash frames for each video (WinRT,
+    // App-only), then group. Runs on the UI/ASTA thread (MediaComposition needs
+    // it) with per-video progress; a slow but opt-in pass. Videos that fail to
+    // decode are simply left out.
+    private static async Task<IReadOnlyList<Quickening.Core.Similarity.VideoSimilarityEngine.VideoGroup>> ComputeVideoGroupsAsync(
+        IReadOnlyList<Quickening.Core.Models.FileRecord> videoFiles,
+        IProgress<ProgressUpdate> progress,
+        CancellationToken cancellationToken)
     {
-        var (count, bytes) = await Task.Run(() => new Quickening.Core.Scanning.FileEnumerator().PreviewCloudPlaceholders(
-            folderPath, App.Settings.ScanHiddenFiles, App.Settings.AllowProtectedPaths));
+        progress.Report(new ProgressUpdate(0, videoFiles.Count, null,
+            StageHeadline: "Matching videos…", StageSubtitle: "Sampling frames to spot near-duplicates."));
 
-        if (count == 0)
+        var signatures = new List<Quickening.Core.Similarity.VideoSimilarityEngine.VideoSignature>();
+        var done = 0;
+        foreach (var file in videoFiles)
         {
-            return false;
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (await Media.VideoFrameHasher.TryComputeSignatureAsync(file) is { } signature)
+            {
+                signatures.Add(signature);
+            }
+
+            done++;
+            progress.Report(new ProgressUpdate(done, videoFiles.Count, file.Path, StageHeadline: "Matching videos…"));
         }
 
-        var choice = await CloudPlaceholderWarningDialog.ShowAsync(XamlRoot, count, bytes);
+        return new Quickening.Core.Similarity.VideoSimilarityEngine().FindSimilarVideos(signatures, cancellationToken);
+    }
+
+    private static async Task<bool> ResolveCloudPlaceholderChoiceAsync(int count, long bytes)
+    {
+        // The home page may be unloaded by now (we've navigated to ProgressPage),
+        // so use the window's own root rather than this page's XamlRoot.
+        var xamlRoot = ((MainWindow)App.MainWindowInstance!).Content.XamlRoot;
+        var choice = await CloudPlaceholderWarningDialog.ShowAsync(xamlRoot, count, bytes);
         return choice switch
         {
             CloudPlaceholderChoice.SkipOnlineOnly => true,
             CloudPlaceholderChoice.DownloadAndInclude => false,
-            _ => null,
+            _ => throw new OperationCanceledException(),
         };
     }
 
     private async Task StartDuplicatesScan(string folderPath, string targetLabel)
     {
         var store = App.Store ?? throw new InvalidOperationException("App.Store was not initialized.");
-
-        var excludeCloudPlaceholders = await CheckCloudPlaceholdersAsync(folderPath);
-        if (excludeCloudPlaceholders is null)
-        {
-            return;
-        }
 
         if (!await TryClaimScanSlotAsync())
         {
@@ -612,18 +704,58 @@ public sealed partial class HomePage : Page
                     var paranoid = App.Settings.ParanoidMode;
                     var scanProgress = new Progress<ScanProgress>(p =>
                         progress.Report(MapScanProgress(p, paranoid)));
-                    var includeSimilar = IncludeSimilarToggle.IsOn;
-                    var result = await Task.Run(
-                        () => new ScanOrchestrator(store).Scan(
-                            folderPath,
-                            scanProgress,
-                            App.Settings.ScanHiddenFiles,
-                            App.Settings.AllowProtectedPaths,
-                            App.Settings.ParanoidMode,
-                            excludeCloudPlaceholders.Value,
-                            cancellationToken,
-                            computeSimilarity: includeSimilar),
+                    var orchestrator = new ScanOrchestrator(store);
+
+                    // Single tree walk - also counts cloud placeholders, so the
+                    // online-only prompt below needs no separate walk (was a
+                    // second full walk of the whole tree, brutal on C:\).
+                    var enumeration = await Task.Run(
+                        () => orchestrator.EnumerateForScan(
+                            folderPath, scanProgress, App.Settings.ScanHiddenFiles, App.Settings.AllowProtectedPaths, cancellationToken),
                         cancellationToken);
+
+                    var excludeCloudPlaceholders = enumeration.CloudPlaceholderCount > 0
+                        && await ResolveCloudPlaceholderChoiceAsync(enumeration.CloudPlaceholderCount, enumeration.CloudPlaceholderBytes);
+
+                    var includeSimilar = App.Settings.IncludeSimilarPhotos;
+                    var result = await Task.Run(
+                        () => orchestrator.ScanEnumerated(
+                            enumeration,
+                            folderPath,
+                            excludeCloudPlaceholders,
+                            scanProgress,
+                            paranoid,
+                            cancellationToken,
+                            computeSimilarity: includeSimilar,
+                            similarityMaxDistance: App.Settings.SimilarityMaxDistance,
+                            computeBlur: App.Settings.FlagBlurryPhotos,
+                            blurryMaxSharpness: App.Settings.BlurryMaxSharpness,
+                            computeAudioDupes: App.Settings.FindDuplicateSongs,
+                            collectVideoFiles: App.Settings.IncludeSimilarVideos),
+                        cancellationToken);
+
+                    // Video similarity (F11) needs WinRT frame extraction, which
+                    // can't run inside the Core Task.Run - do it here on the UI/ASTA
+                    // thread and hang the groups off the same ScanResult.
+                    // Byte-identical videos are excluded: they're already in
+                    // DuplicateGroups, and frame-hashing them both wastes decode
+                    // time and double-lists the same pair as "similar" too (the
+                    // image pass applies the same exclusion in Core).
+                    if (App.Settings.IncludeSimilarVideos && result.VideoFiles.Count > 0)
+                    {
+                        var exactDuplicatePaths = result.DuplicateGroups
+                            .SelectMany(g => g.Files)
+                            .Select(f => f.Path)
+                            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        var candidates = result.VideoFiles
+                            .Where(f => !exactDuplicatePaths.Contains(f.Path))
+                            .ToList();
+                        if (candidates.Count > 1)
+                        {
+                            result.VideoGroups = await ComputeVideoGroupsAsync(candidates, progress, cancellationToken);
+                        }
+                    }
+
                     return (object?)new ScanOutcome(result, IsLargeFilesMode: false, ThresholdBytes: null, TargetLabel: targetLabel, FolderPath: folderPath);
                 }
                 finally
@@ -641,18 +773,16 @@ public sealed partial class HomePage : Page
             },
             TargetLabel: targetLabel);
 
-        ((MainWindow)App.MainWindowInstance!).ShowProgress(parameters);
+        if (!((MainWindow)App.MainWindowInstance!).ShowProgress(parameters))
+        {
+            // The operation (whose finally releases the slot) will never run.
+            ScanCoordinator.End();
+        }
     }
 
     private async Task StartLargeFilesScan(string folderPath, string targetLabel, long thresholdBytes)
     {
         var store = App.Store ?? throw new InvalidOperationException("App.Store was not initialized.");
-
-        var excludeCloudPlaceholders = await CheckCloudPlaceholdersAsync(folderPath);
-        if (excludeCloudPlaceholders is null)
-        {
-            return;
-        }
 
         if (!await TryClaimScanSlotAsync())
         {
@@ -669,14 +799,21 @@ public sealed partial class HomePage : Page
                     // the UI thread, not inside Task.Run.
                     var scanProgress = new Progress<ScanProgress>(p =>
                         progress.Report(MapScanProgress(p, paranoid: false)));
+                    var orchestrator = new ScanOrchestrator(store);
+
+                    // Single tree walk - also counts cloud placeholders, so the
+                    // online-only prompt below needs no separate walk.
+                    var enumeration = await Task.Run(
+                        () => orchestrator.EnumerateForScan(
+                            folderPath, scanProgress, App.Settings.ScanHiddenFiles, App.Settings.AllowProtectedPaths, cancellationToken),
+                        cancellationToken);
+
+                    var excludeCloudPlaceholders = enumeration.CloudPlaceholderCount > 0
+                        && await ResolveCloudPlaceholderChoiceAsync(enumeration.CloudPlaceholderCount, enumeration.CloudPlaceholderBytes);
+
                     var result = await Task.Run(
-                        () => new ScanOrchestrator(store).ScanForLargeFiles(
-                            folderPath,
-                            scanProgress,
-                            App.Settings.ScanHiddenFiles,
-                            App.Settings.AllowProtectedPaths,
-                            excludeCloudPlaceholders.Value,
-                            cancellationToken),
+                        () => orchestrator.ScanForLargeFilesEnumerated(
+                            enumeration, folderPath, excludeCloudPlaceholders, cancellationToken),
                         cancellationToken);
                     return (object?)new ScanOutcome(result, IsLargeFilesMode: true, ThresholdBytes: thresholdBytes, TargetLabel: targetLabel, FolderPath: folderPath);
                 }
@@ -695,7 +832,11 @@ public sealed partial class HomePage : Page
             },
             TargetLabel: targetLabel);
 
-        ((MainWindow)App.MainWindowInstance!).ShowProgress(parameters);
+        if (!((MainWindow)App.MainWindowInstance!).ShowProgress(parameters))
+        {
+            // The operation (whose finally releases the slot) will never run.
+            ScanCoordinator.End();
+        }
     }
 
     /// <summary>
@@ -803,7 +944,9 @@ public sealed partial class HomePage : Page
                 break;
             case ScanPhase.Finalizing:
                 headline = "Almost done…";
-                subtitle = "Saving results and tidying up.";
+                subtitle = p.TotalFiles is > 0
+                    ? $"Finding look-alike photos… {p.FilesProcessed:N0} of {p.TotalFiles:N0}"
+                    : "Saving results and tidying up.";
                 break;
             // Enumerating: leave null so the page keeps its initial headline
             // and per-target "Counting every file in {folder}…" subtitle.

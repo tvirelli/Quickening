@@ -122,6 +122,41 @@
             <TextBlock x:Name="ReassuranceText" HorizontalAlignment="Center" Margin="0,14,0,0"
                        FontSize="12.5" Foreground="{StaticResource TextDisabledHintBrush}"
                        TextAlignment="Center" TextWrapping="Wrap" MaxWidth="640" />
+
+            <!-- "Also found" callouts (F5 Tidy up, F8 Duplicate folders) - side by
+                 side, each shown only when the scan turned any up. Passive nudges,
+                 never the headline. When only one shows, it centres on its own. -->
+            <StackPanel Orientation="Horizontal" Spacing="14" HorizontalAlignment="Center" Margin="0,24,0,0">
+                <Border x:Name="HousekeepingCallout" Visibility="Collapsed" VerticalAlignment="Top"
+                        Padding="18,12" CornerRadius="14"
+                        Background="#0BFFFFFF" BorderBrush="#16FFFFFF" BorderThickness="1">
+                    <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                        <TextBlock Text="&#x1F9F9;" FontSize="18" VerticalAlignment="Center" />
+                        <TextBlock x:Name="HousekeepingText" VerticalAlignment="Center" FontSize="13.5"
+                                   Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" MaxWidth="300" />
+                        <Button x:Name="HousekeepingButton" Click="Housekeeping_Click" Content="Tidy up &#x2192;"
+                                controls:PillCornerRadius.Enabled="True" Padding="18,9" Background="Transparent"
+                                Foreground="{StaticResource TextBodyEmphasisBrush}" FontFamily="{StaticResource BodyFontFamily}"
+                                FontSize="13" FontWeight="Bold"
+                                BorderBrush="{StaticResource SecondaryButtonBorderBrush}" BorderThickness="1.5" />
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="DuplicateFoldersCallout" Visibility="Collapsed" VerticalAlignment="Top"
+                        Padding="18,12" CornerRadius="14"
+                        Background="#0BFFFFFF" BorderBrush="#16FFFFFF" BorderThickness="1">
+                    <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                        <TextBlock Text="&#x1F5C2;" FontSize="18" VerticalAlignment="Center" />
+                        <TextBlock x:Name="DuplicateFoldersText" VerticalAlignment="Center" FontSize="13.5"
+                                   Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" MaxWidth="300" />
+                        <Button x:Name="DuplicateFoldersButton" Click="DuplicateFolders_Click" Content="Review folders &#x2192;"
+                                controls:PillCornerRadius.Enabled="True" Padding="18,9" Background="Transparent"
+                                Foreground="{StaticResource TextBodyEmphasisBrush}" FontFamily="{StaticResource BodyFontFamily}"
+                                FontSize="13" FontWeight="Bold"
+                                BorderBrush="{StaticResource SecondaryButtonBorderBrush}" BorderThickness="1.5" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
         </StackPanel>
     </Grid>
 </Page>

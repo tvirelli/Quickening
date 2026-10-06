@@ -30,6 +30,17 @@ public sealed partial class MainWindow : Window
         {
             appWindow.Resize(new Windows.Graphics.SizeInt32(1280, 860));
 
+            // Floor the window size: below ~1000 px the Results page's sidebar
+            // + file rows run out of room and rows lose their file names and
+            // paths entirely, while the header overlaps the select toolbar
+            // (QA-16, seen at 700 px). A minimum is simpler and safer than
+            // reflowing every results layout for narrow widths.
+            if (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
+            {
+                presenter.PreferredMinimumWidth = 1024;
+                presenter.PreferredMinimumHeight = 700;
+            }
+
             // Explicit - a custom-titlebar (ExtendsContentIntoTitleBar) WinUI3
             // window doesn't reliably inherit the exe's embedded icon resource
             // for its own taskbar/Alt-Tab/system-menu icon, even though
@@ -64,7 +75,117 @@ public sealed partial class MainWindow : Window
         // this constructor returns (in App.xaml.cs's OnLaunched). Calling
         // ShowHome() here directly would crash with a NullReferenceException
         // on every launch.
-        ContentFrame.Loaded += (_, _) => ShowHome();
+        ContentFrame.Loaded += (_, _) =>
+        {
+            ShowHome();
+            PositionRecycleBinPill();
+            RefreshRecycleBinPill();
+        };
+
+        // The pill tracks the REAL Windows bin, which other apps and Explorer
+        // mutate too - refresh whenever this app changes screens (covers every
+        // post-delete flow, which all navigate) plus a slow timer for changes
+        // made outside the app while it sits idle.
+        ContentFrame.Navigated += (_, _) => RefreshRecycleBinPill();
+        var binTimer = DispatcherQueue.CreateTimer();
+        binTimer.Interval = TimeSpan.FromSeconds(30);
+        binTimer.IsRepeating = true;
+        binTimer.Tick += (_, _) => RefreshRecycleBinPill();
+        binTimer.Start();
+    }
+
+    // Stateless uses only (totals query + empty) - Undo restores go through the
+    // page-owned instances that performed the deletes, never this one.
+    private readonly Quickening.Core.Deletion.RecycleBinService _binService = new();
+
+    // True while the Empty dialog is open - both suppresses re-entry (double
+    // click) and stops the 30s timer's refresh from fighting the dialog.
+    private bool _binDialogOpen;
+
+    // Places the pill clear of the system caption buttons: RightInset is
+    // their PHYSICAL width, converted to DIPs via the current rasterization
+    // scale. Falls back to the XAML default margin when either is unavailable.
+    private void PositionRecycleBinPill()
+    {
+        var inset = AppWindow?.TitleBar?.RightInset ?? 0;
+        var scale = Content?.XamlRoot?.RasterizationScale ?? 1.0;
+        if (inset > 0 && scale > 0)
+        {
+            RecycleBinPill.Margin = new Thickness(0, 6, (inset / scale) + 12, 0);
+        }
+    }
+
+    internal void RefreshRecycleBinPill()
+    {
+        if (_binDialogOpen)
+        {
+            return;
+        }
+
+        try
+        {
+            var (items, sizeBytes) = _binService.GetRecycleBinTotals();
+            if (items > 0)
+            {
+                RecycleBinPillText.Text =
+                    $"{items} item{(items == 1 ? "" : "s")} · {Formatting.FileSizeFormatter.Format(sizeBytes)}";
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(
+                    RecycleBinPill, $"Recycle Bin: {RecycleBinPillText.Text}. Click to empty it.");
+                RecycleBinPill.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                RecycleBinPill.Visibility = Visibility.Collapsed;
+            }
+        }
+        catch (IOException)
+        {
+            // Bin query unavailable (e.g. transient shell error) - just hide
+            // the pill rather than showing stale numbers.
+            RecycleBinPill.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private async void RecycleBinPill_Click(object sender, RoutedEventArgs e)
+    {
+        if (_binDialogOpen || Content?.XamlRoot is not { } xamlRoot)
+        {
+            return;
+        }
+
+        _binDialogOpen = true;
+        try
+        {
+            // The dialog only reports the user's hold-to-confirm decision -
+            // ACTUALLY emptying is the caller's job (same contract as
+            // HistoryPage.EmptyRecycleBinButton_Click). SHEmptyRecycleBin on a
+            // multi-GB bin takes seconds to minutes; run it off the UI thread
+            // so the window doesn't go "not responding", and swallow-and-log
+            // rather than crash this async void handler on a COM failure.
+            var confirmed = await Views.EmptyRecycleBinDialog.ShowAsync(xamlRoot, _binService);
+            if (confirmed)
+            {
+                RecycleBinPill.IsEnabled = false;
+                try
+                {
+                    await Task.Run(_binService.EmptyRecycleBin);
+                }
+                catch (Exception ex)
+                {
+                    App.Logger?.LogError($"Emptying the Recycle Bin failed: {ex}");
+                }
+                finally
+                {
+                    RecycleBinPill.IsEnabled = true;
+                }
+            }
+        }
+        finally
+        {
+            _binDialogOpen = false;
+        }
+
+        RefreshRecycleBinPill();
     }
 
     private void ConfigureTitleBarButtons()
@@ -115,9 +236,12 @@ public sealed partial class MainWindow : Window
         ContentFrame.Navigate(typeof(HomePage), prefill);
     }
 
-    public void ShowProgress(ProgressPageParameters parameters)
+    // Returns false when the frame refused the navigation (e.g. it was issued
+    // mid-navigation), so a caller holding the scan slot can release it -
+    // ProgressPage is what runs the operation whose finally ends the scan.
+    public bool ShowProgress(ProgressPageParameters parameters)
     {
-        ContentFrame.Navigate(typeof(ProgressPage), parameters);
+        return ContentFrame.Navigate(typeof(ProgressPage), parameters);
     }
 
     public void ShowHistory()
@@ -170,6 +294,27 @@ public sealed partial class MainWindow : Window
     public void ShowCelebration(CelebrationParameters parameters)
     {
         ContentFrame.Navigate(typeof(CelebrationPage), parameters);
+    }
+
+    // Housekeeping review (F5) - the empty folders / zero-byte files a scan
+    // found, reached via the "Tidy up" callout on ScanCompletePage.
+    public void ShowHousekeeping(HousekeepingNavigationRequest request)
+    {
+        ContentFrame.Navigate(typeof(HousekeepingPage), request);
+    }
+
+    // Duplicate-folder review (F8) - sets of whole folders that are exact copies,
+    // reached via the "duplicate folders" callout on ScanCompletePage.
+    public void ShowDuplicateFolders(DuplicateFoldersNavigationRequest request)
+    {
+        ContentFrame.Navigate(typeof(DuplicateFoldersPage), request);
+    }
+
+    // Manage Ignored Files - reached from Settings; lets the user remove entries
+    // from the ignore list.
+    public void ShowManageIgnored()
+    {
+        ContentFrame.Navigate(typeof(ManageIgnoredPage));
     }
 
     // The four empty/error-state screens - triggered from
