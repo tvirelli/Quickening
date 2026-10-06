@@ -93,6 +93,20 @@ public sealed class ScanResult
     /// reason as VideoGroups: the App computes them after the Core scan.
     /// </summary>
     public IReadOnlyList<SoundGroup> SoundGroups { get; set; } = Array.Empty<SoundGroup>();
+
+    /// <summary>
+    /// True when any review section has something in it - the "nothing found"
+    /// screen is only for scans where every list is empty. (It used to check
+    /// exact duplicates and similar photos only, so a scan whose finds were all
+    /// songs, videos or blurry photos said "no two are alike".)
+    /// </summary>
+    public bool HasAnythingToReview =>
+        DuplicateGroups.Count > 0
+        || SimilarityGroups.Count > 0
+        || BlurryPhotos.Count > 0
+        || MusicGroups.Count > 0
+        || VideoGroups.Count > 0
+        || SoundGroups.Count > 0;
 }
 
 public enum ScanPhase { Enumerating, Comparing, Finalizing }

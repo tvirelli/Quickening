@@ -162,14 +162,24 @@ public sealed partial class ScanCompletePage : Page
 
         var emphasisBrush = EmphasisBrush();
         SubtitleText.Inlines.Clear();
-        SubtitleText.Inlines.Add(new Run { Text = $"{fileCount} duplicate files", Foreground = emphasisBrush, FontWeight = FontWeights.Bold });
-        SubtitleText.Inlines.Add(new Run { Text = " in " });
-        SubtitleText.Inlines.Add(new Run { Text = $"{groupCount} groups", Foreground = emphasisBrush, FontWeight = FontWeights.Bold });
-        SubtitleText.Inlines.Add(new Run { Text = " — keep one of each, and that space is yours." });
+        if (groupCount == 0)
+        {
+            // Only close matches (similar photos, same songs, videos, blurry):
+            // "0 B is yours to reclaim - 0 duplicate files" read as a dead end,
+            // and Select Recommended only ever selects exact copies.
+            HeadlineText.Text = "No exact copies, but some close matches.";
+            SubtitleText.Inlines.Add(new Run { Text = "Nothing here is byte-for-byte identical. Compare the close matches before deciding what to keep." });
+            SelectRecommendedButton.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            SubtitleText.Inlines.Add(new Run { Text = $"{fileCount} duplicate files", Foreground = emphasisBrush, FontWeight = FontWeights.Bold });
+            SubtitleText.Inlines.Add(new Run { Text = " in " });
+            SubtitleText.Inlines.Add(new Run { Text = $"{groupCount} groups", Foreground = emphasisBrush, FontWeight = FontWeights.Bold });
+            SubtitleText.Inlines.Add(new Run { Text = " — keep one of each, and that space is yours." });
+        }
 
-        ReassuranceText.Text = scanResult.SimilarityGroups.Count > 0
-            ? $"Recommended keeps the newest copy in every group. There {(scanResult.SimilarityGroups.Count == 1 ? "is" : "are")} also {scanResult.SimilarityGroups.Count} similar-photo group{(scanResult.SimilarityGroups.Count == 1 ? "" : "s")} worth a look in Review Results."
-            : "Recommended keeps the newest copy in every group. You'll still confirm before anything moves.";
+        ReassuranceText.Text = ScanSummaryText.Reassurance(scanResult);
     }
 
     private void ShowLargeFilesSummary(ScanCompleteNavigationRequest request)

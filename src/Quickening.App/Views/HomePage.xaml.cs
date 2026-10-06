@@ -935,10 +935,10 @@ public sealed partial class HomePage : Page
 
         if (!outcome.IsLargeFilesMode)
         {
-            // A scan with no exact duplicates can still have "looks-alike"
-            // photos worth showing (new-screens 4k) - only fall back to the
-            // empty state when there's truly nothing in either list.
-            if (outcome.Result.DuplicateGroups.Count == 0 && outcome.Result.SimilarityGroups.Count == 0)
+            // A scan with no exact duplicates can still have similar photos,
+            // songs, videos or blurry shots worth showing - only fall back to the
+            // empty state when every review list is empty.
+            if (!outcome.Result.HasAnythingToReview)
             {
                 window.ShowNoDuplicatesFound(new NoDuplicatesFoundParameters(
                     outcome.Result.TotalFilesScanned, outcome.TargetLabel, outcome.FolderPath));
