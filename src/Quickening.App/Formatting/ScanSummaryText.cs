@@ -36,6 +36,23 @@ public static class ScanSummaryText
             : $"Recommended keeps the newest copy in every group. There {(plural ? "are" : "is")} also {list} worth a look in Review Results.";
     }
 
+    /// <summary>
+    /// The Results page header. With no exact duplicates but close matches
+    /// below, "0 duplicate groups · 0 files · 0 B reclaimable" sat above a list
+    /// of files and read as a contradiction - say what's there instead.
+    /// </summary>
+    public static string ResultsHeader(int groupCount, int fileCount, long reclaimableBytes, bool hasCloseMatches)
+    {
+        if (groupCount == 0 && hasCloseMatches)
+        {
+            return "No exact duplicates · close matches below";
+        }
+
+        return $"{groupCount} duplicate group{(groupCount == 1 ? "" : "s")} · "
+            + $"{fileCount} file{(fileCount == 1 ? "" : "s")} · "
+            + $"{FileSizeFormatter.Format(reclaimableBytes)} reclaimable";
+    }
+
     private static void AddCount(List<string> parts, int count, string noun)
     {
         if (count > 0)

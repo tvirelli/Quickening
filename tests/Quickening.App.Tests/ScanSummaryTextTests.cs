@@ -51,4 +51,18 @@ public class ScanSummaryTextTests
 
         Assert.Equal("No exact copies here, but there are 11 same-song groups worth a look in Review Results.", ScanSummaryText.Reassurance(r));
     }
+
+    [Fact]
+    public void ResultsHeader_WithExactDuplicates_ShowsTheCounts()
+    {
+        Assert.Equal("6 duplicate groups · 13 files · 151 KB reclaimable", ScanSummaryText.ResultsHeader(6, 13, 151 * 1024, hasCloseMatches: true));
+        Assert.Equal("1 duplicate group · 2 files · 40 B reclaimable", ScanSummaryText.ResultsHeader(1, 2, 40, hasCloseMatches: false));
+    }
+
+    [Fact]
+    public void ResultsHeader_WithOnlyCloseMatches_DoesNotSayZero()
+    {
+        Assert.Equal("No exact duplicates · close matches below", ScanSummaryText.ResultsHeader(0, 0, 0, hasCloseMatches: true));
+        Assert.Equal("0 duplicate groups · 0 files · 0 B reclaimable", ScanSummaryText.ResultsHeader(0, 0, 0, hasCloseMatches: false));
+    }
 }

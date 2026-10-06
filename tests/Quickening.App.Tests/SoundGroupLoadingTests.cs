@@ -31,6 +31,21 @@ public class SoundGroupLoadingTests
     }
 
     [Fact]
+    public void LoadSoundGroups_TitlesTheGroupWithTheShortestFileName()
+    {
+        // Mastering services prefix their output ("Mixea_MediumNeutral_hd_Reset");
+        // the original's plain name is the better title even though the master
+        // is the copy listed first.
+        var vm = new ResultsViewModel(new FakeRecycleBinService());
+        vm.LoadMusicGroups(Array.Empty<AudioDuplicateEngine.MusicGroup>());
+        vm.LoadSoundGroups(new[] { new SoundGroup(new[] { Sig(@"C:\Reset\Original\Reset.wav", 16), Sig(@"C:\Reset\Mastered\Mixea_MediumNeutral_hd_Reset.wav", 24) }, 94) });
+
+        var group = Assert.Single(vm.MusicGroups);
+        Assert.Equal("Reset", group.SongLabel);
+        Assert.EndsWith("Mixea_MediumNeutral_hd_Reset.wav", group.Files[0].Path);
+    }
+
+    [Fact]
     public void LoadSoundGroups_NoBadge_WhenFidelityTies()
     {
         var vm = new ResultsViewModel(new FakeRecycleBinService());

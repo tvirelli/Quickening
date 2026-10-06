@@ -944,7 +944,13 @@ public sealed class ResultsViewModel
 
             MusicGroups.Add(new MusicGroupViewModel
             {
-                SongLabel = System.IO.Path.GetFileNameWithoutExtension(ordered[0].File.Path),
+                // Shortest name, not the first copy's: mastering services prefix
+                // their output ("Mixea_MediumNeutral_hd_Reset"), and the plain
+                // original name ("Reset") is the better title.
+                SongLabel = ordered
+                    .Select(m => System.IO.Path.GetFileNameWithoutExtension(m.File.Path))
+                    .OrderBy(name => name.Length)
+                    .First(),
                 MatchHint = $"Sounds the same · {group.MatchPercent}%",
                 Files = new ObservableCollection<SelectableFile>(files),
             });

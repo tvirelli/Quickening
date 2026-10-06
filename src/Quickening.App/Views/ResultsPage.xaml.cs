@@ -663,9 +663,9 @@ public sealed partial class ResultsPage : Page
         // "duplicate group(s)", not just "group(s)": the list below now holds
         // several section types, and these numbers cover the Duplicates
         // section only (each other section shows its own count on its bar).
-        SummaryText.Text = $"{groupCount} duplicate group{(groupCount == 1 ? "" : "s")} · "
-            + $"{fileCount} file{(fileCount == 1 ? "" : "s")} · "
-            + $"{FileSizeFormatter.Format(reclaimableBytes)} reclaimable";
+        var hasCloseMatches = _viewModel.SimilarityGroups.Count > 0 || _viewModel.BlurryPhotos.Count > 0
+            || _viewModel.MusicGroups.Count > 0 || _viewModel.VideoGroups.Count > 0;
+        SummaryText.Text = ScanSummaryText.ResultsHeader(groupCount, fileCount, reclaimableBytes, hasCloseMatches);
 
         // Slim per-list-header count next to the Select toolbar.
         ResultCountText.Text = $"{groupCount} duplicate group{(groupCount == 1 ? "" : "s")}";

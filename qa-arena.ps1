@@ -126,6 +126,32 @@ $wedding = New-Photo -Seed 500 -Path "$scrap\Photos\wedding.png"
 $wedding.Dispose()
 Copy-Item "$scrap\Photos\wedding.png" "$scrap\Scrapbook\book1\page1\wedding.png"  # deliberate keep-both copy
 
+# ===== 6. Deep audio matching (synthesized tunes, no copyrighted audio) =====
+# A tune is a melody that changes pitch every 0.25 s. Same seed = same
+# recording, so the quieter copy SHOULD match; a different seed of the same
+# length must NOT (same-length different songs are the hard negative).
+function New-Tune {
+    param([int]$Seed, [string]$Path, [double]$Gain = 1.0, [int]$Seconds = 20)
+    $rate = 11025; $n = $Seconds * $rate
+    $rng = New-Object System.Random($Seed)
+    $freqs = 0..($Seconds * 4) | ForEach-Object { 300 + $rng.NextDouble() * 1500 }
+    $buf = New-Object byte[] ($n * 2)
+    for ($i = 0; $i -lt $n; $i++) {
+        $t = $i / $rate
+        $v = [int][Math]::Round([Math]::Sin(2 * [Math]::PI * $freqs[[int][Math]::Floor($t * 4)] * $t) * 9000 * $Gain)
+        $buf[2 * $i] = [byte]($v -band 0xFF); $buf[2 * $i + 1] = [byte](($v -shr 8) -band 0xFF)
+    }
+    $fs = [IO.File]::Create($Path); $w = New-Object IO.BinaryWriter($fs)
+    $w.Write([Text.Encoding]::ASCII.GetBytes('RIFF')); $w.Write([int](36 + $n * 2)); $w.Write([Text.Encoding]::ASCII.GetBytes('WAVEfmt '))
+    $w.Write([int]16); $w.Write([int16]1); $w.Write([int16]1); $w.Write([int]$rate); $w.Write([int]($rate * 2)); $w.Write([int16]2); $w.Write([int16]16)
+    $w.Write([Text.Encoding]::ASCII.GetBytes('data')); $w.Write([int]($n * 2)); $w.Write($buf); $w.Close()
+}
+$music = Join-Path $Root 'music'
+New-Item -ItemType Directory -Force "$music\Original", "$music\Mastered", "$music\Other" | Out-Null
+New-Tune -Seed 7 -Path "$music\Original\Demo Song.wav"
+New-Tune -Seed 7 -Path "$music\Mastered\Demo Song (master).wav" -Gain 0.5   # same recording, quieter: SHOULD match
+New-Tune -Seed 8 -Path "$music\Other\Different Song.wav"                    # same length, different song: must NOT match
+
 Write-Host ""
 Write-Host "QA arena ready: $Root" -ForegroundColor Green
 Write-Host "Scan that folder in Quickening and follow docs/qa/rc-qa-checklist.md."
