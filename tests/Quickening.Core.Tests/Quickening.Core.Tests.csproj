@@ -28,4 +28,13 @@
     <Compile Include="..\Shared\SynchronousProgress.cs" Link="Shared\SynchronousProgress.cs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Serial test collections (see xunit.runner.json): RecycleBinServiceTests
+         drives the real Windows shell (COM IFileOperation) and intermittently
+         CRASHED the test host when other collections ran concurrently - vstest
+         then printed "Passed!" for a silently TRUNCATED run (totals varied
+         193-207 across identical invocations). Whole suite still runs in ~2s. -->
+    <None Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

@@ -15,6 +15,7 @@ not under Quickening's EULA.
 | System.Drawing.Common | 8.0.10 | MIT | .NET Foundation and Contributors |
 | System.IO.Hashing | 10.0.9 | MIT | .NET Foundation and Contributors |
 | Vanara.PInvoke.Shell32 | 4.0.5 | MIT | David Hall |
+| z440.atl.core (ATL.NET) | 6.13.0 | MIT | Zeugma440 and contributors |
 | .NET Runtime | 8.x (self-contained) | MIT | .NET Foundation and Contributors |
 | Windows App SDK | 2.2.0 | Microsoft Software License | Microsoft Corporation |
 | Manrope (font) | variable | SIL OFL 1.1 | The Manrope Project Authors |
@@ -31,6 +32,7 @@ The following components are licensed under the MIT License:
 - System.Drawing.Common — Copyright (c) .NET Foundation and Contributors
 - System.IO.Hashing — Copyright (c) .NET Foundation and Contributors
 - Vanara.PInvoke.Shell32 — Copyright (c) 2017 David Hall (https://github.com/dahall/Vanara)
+- z440.atl.core (ATL.NET) — Copyright (c) Zeugma440 and contributors (https://github.com/Zeugma440/atldotnet)
 - .NET Runtime — Copyright (c) .NET Foundation and Contributors
 
 ```

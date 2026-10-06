@@ -9,6 +9,8 @@
   <ItemGroup>
     <PackageReference Include="Blake3" Version="2.2.1" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+    <PackageReference Include="z440.atl.core" Version="6.13.0" />
+
     <PackageReference Include="System.Drawing.Common" Version="8.0.10" />
     <PackageReference Include="System.IO.Hashing" Version="10.0.9" />
     <PackageReference Include="Vanara.PInvoke.Shell32" Version="4.0.5" />

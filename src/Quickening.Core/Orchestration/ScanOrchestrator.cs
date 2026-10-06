@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Quickening.Core.Audio;
 using Quickening.Core.Duplicates;
 using Quickening.Core.Hashing;
 using Quickening.Core.Models;
@@ -30,6 +31,55 @@ public sealed class ScanResult
     /// ScanForLargeFiles, which has no reason to compute image hashes).
     /// </summary>
     public IReadOnlyList<SimilarityGroup> SimilarityGroups { get; init; } = Array.Empty<SimilarityGroup>();
+
+    /// <summary>
+    /// Housekeeping byproduct (F5): the empty folders and zero-byte files under
+    /// the scanned root. Null if it wasn't computed. Kept apart from
+    /// DuplicateGroups/AllFiles because these aren't copies or space hogs -
+    /// they're clutter to tidy. See <see cref="EmptyItemScanner"/>.
+    /// </summary>
+    public EmptyItemScanner.Result? EmptyItems { get; init; }
+
+    /// <summary>
+    /// Whole folders that are exact copies of each other (F8), derived from the
+    /// file-level DuplicateGroups. Always empty after a Large Files scan (which
+    /// has no duplicate groups). See <see cref="DuplicateFolderEngine"/>.
+    /// </summary>
+    public IReadOnlyList<DuplicateFolderEngine.DuplicateFolderGroup> DuplicateFolders { get; init; }
+        = Array.Empty<DuplicateFolderEngine.DuplicateFolderGroup>();
+
+    /// <summary>
+    /// Likely-blurry photos (F9), blurriest first - images whose sharpness score
+    /// fell at or below the threshold. Empty unless the blur pass ran. A review
+    /// list only; these are never auto-selected (a smooth-but-sharp photo can
+    /// score low too). See <see cref="PerceptualHashService"/>.Sharpness.
+    /// </summary>
+    public IReadOnlyList<Models.FileRecord> BlurryPhotos { get; init; } = Array.Empty<Models.FileRecord>();
+
+    /// <summary>
+    /// Same-song groups (F10): audio files that are the same track encoded
+    /// differently (title/artist/duration match, any format/bitrate). Empty
+    /// unless the audio pass ran. Distinct from byte-identical DuplicateGroups.
+    /// </summary>
+    public IReadOnlyList<AudioDuplicateEngine.MusicGroup> MusicGroups { get; init; }
+        = Array.Empty<AudioDuplicateEngine.MusicGroup>();
+
+    /// <summary>
+    /// The video files this scan enumerated (F11) - populated only when video
+    /// similarity was requested, so the App layer can extract + hash frames via
+    /// Windows Media (which Core can't reach) and group them itself. Empty
+    /// otherwise. Core does no video work; it just hands over the list.
+    /// </summary>
+    public IReadOnlyList<Models.FileRecord> VideoFiles { get; init; } = Array.Empty<Models.FileRecord>();
+
+    /// <summary>
+    /// Near-duplicate video groups (F11). Settable (not init) because Core can't
+    /// decode video frames - the App layer extracts + hashes them via Windows
+    /// Media, runs VideoSimilarityEngine, and assigns the result back here so it
+    /// rides along with the rest of the ScanResult to the results page.
+    /// </summary>
+    public IReadOnlyList<VideoSimilarityEngine.VideoGroup> VideoGroups { get; set; }
+        = Array.Empty<VideoSimilarityEngine.VideoGroup>();
 }
 
 public enum ScanPhase { Enumerating, Comparing, Finalizing }
@@ -71,6 +121,12 @@ public sealed class ScanOrchestrator
     // the user wants it.
     private static readonly TimeSpan ProgressInterval = TimeSpan.FromMilliseconds(50);
 
+    // Default blur cutoff (F9): an image whose Laplacian-variance sharpness is at
+    // or below this is flagged as a likely-blurry review candidate. Content-
+    // dependent and deliberately conservative; the UI exposes a strictness slider
+    // that overrides it.
+    public const double DefaultBlurryMaxSharpness = 90;
+
     private readonly SqliteStore _store;
 
     public ScanOrchestrator(SqliteStore store)
@@ -78,6 +134,91 @@ public sealed class ScanOrchestrator
         _store = store;
     }
 
+    /// <summary>
+    /// A single enumeration pass' output: every file found (cloud placeholders
+    /// included and flagged), plus the placeholder count/size so a caller can
+    /// prompt once and run the rest of the scan WITHOUT walking the tree a second
+    /// time. Also remembers the hidden/protected toggles so the process pass can
+    /// reuse them (the F5 empty-item walk) without being told again.
+    /// </summary>
+    public sealed record ScanEnumeration(
+        List<Models.FileRecord> Files,
+        int CloudPlaceholderCount,
+        long CloudPlaceholderBytes,
+        bool IncludeHiddenFiles,
+        bool AllowProtectedPaths);
+
+    /// <summary>
+    /// The single tree walk. Enumerates everything (placeholders included and
+    /// flagged) and counts the cloud placeholders, so the caller can show its
+    /// "online-only files" prompt from THIS pass rather than a separate walk.
+    /// </summary>
+    public ScanEnumeration EnumerateForScan(
+        string rootPath,
+        IProgress<ScanProgress>? progress = null,
+        bool includeHiddenFiles = false,
+        bool allowProtectedPaths = false,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var enumerator = new FileEnumerator();
+        var files = EnumerateWithProgress(
+            enumerator, rootPath, progress, includeHiddenFiles, allowProtectedPaths,
+            excludeCloudPlaceholders: false, cancellationToken);
+
+        var placeholderCount = 0;
+        var placeholderBytes = 0L;
+        foreach (var file in files)
+        {
+            if (file.IsCloudPlaceholder)
+            {
+                placeholderCount++;
+                placeholderBytes += file.SizeBytes;
+            }
+        }
+
+        return new ScanEnumeration(files, placeholderCount, placeholderBytes, includeHiddenFiles, allowProtectedPaths);
+    }
+
+    /// <summary>
+    /// The duplicate scan proper, run over an already-enumerated file list (see
+    /// EnumerateForScan) so the tree is walked only once even though the caller
+    /// prompted about cloud placeholders in between. Placeholders are dropped
+    /// here when excludeCloudPlaceholders is set, not via a second enumeration.
+    /// </summary>
+    public ScanResult ScanEnumerated(
+        ScanEnumeration enumeration,
+        string rootPath,
+        bool excludeCloudPlaceholders = false,
+        IProgress<ScanProgress>? progress = null,
+        bool paranoidMode = false,
+        CancellationToken cancellationToken = default,
+        bool computeSimilarity = false,
+        int similarityMaxDistance = SimilarityEngine.DefaultMaxHammingDistance,
+        bool computeBlur = false,
+        double blurryMaxSharpness = DefaultBlurryMaxSharpness,
+        bool computeAudioDupes = false,
+        bool collectVideoFiles = false)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var files = excludeCloudPlaceholders
+            ? enumeration.Files.Where(f => !f.IsCloudPlaceholder).ToList()
+            : enumeration.Files;
+
+        return ProcessScan(
+            files, rootPath, enumeration.IncludeHiddenFiles, enumeration.AllowProtectedPaths,
+            paranoidMode, progress, cancellationToken, computeSimilarity, similarityMaxDistance,
+            computeBlur, blurryMaxSharpness, computeAudioDupes, collectVideoFiles);
+    }
+
+    /// <summary>
+    /// Convenience wrapper: enumerate then process in one call (still a single
+    /// walk). The UI uses EnumerateForScan + ScanEnumerated directly so it can
+    /// prompt about cloud placeholders without a second walk; tests and other
+    /// callers that don't need that use this.
+    /// </summary>
     public ScanResult Scan(
         string rootPath,
         IProgress<ScanProgress>? progress = null,
@@ -86,7 +227,12 @@ public sealed class ScanOrchestrator
         bool paranoidMode = false,
         bool excludeCloudPlaceholders = false,
         CancellationToken cancellationToken = default,
-        bool computeSimilarity = false)
+        bool computeSimilarity = false,
+        int similarityMaxDistance = SimilarityEngine.DefaultMaxHammingDistance,
+        bool computeBlur = false,
+        double blurryMaxSharpness = DefaultBlurryMaxSharpness,
+        bool computeAudioDupes = false,
+        bool collectVideoFiles = false)
     {
         // FileEnumerator only checks cancellation once it yields at least one
         // path, so an already-cancelled token against an empty directory
@@ -94,13 +240,37 @@ public sealed class ScanOrchestrator
         // here so cancellation is honored regardless of directory contents.
         cancellationToken.ThrowIfCancellationRequested();
 
-        var scanStartUtc = DateTime.UtcNow;
         var enumerator = new FileEnumerator();
-        var hashProvider = new CachingHashProvider(new HashProvider(), _store);
-        var engine = new DuplicateEngine(hashProvider);
-
         var files = EnumerateWithProgress(
             enumerator, rootPath, progress, includeHiddenFiles, allowProtectedPaths, excludeCloudPlaceholders, cancellationToken);
+
+        return ProcessScan(
+            files, rootPath, includeHiddenFiles, allowProtectedPaths,
+            paranoidMode, progress, cancellationToken, computeSimilarity, similarityMaxDistance,
+            computeBlur, blurryMaxSharpness, computeAudioDupes, collectVideoFiles);
+    }
+
+    // The post-enumeration work shared by Scan and ScanEnumerated: hashing +
+    // duplicate grouping, opt-in similarity, the DB upsert/prune, and the F5/F8
+    // byproducts. Takes the already-enumerated (and placeholder-filtered) list.
+    private ScanResult ProcessScan(
+        List<Models.FileRecord> files,
+        string rootPath,
+        bool includeHiddenFiles,
+        bool allowProtectedPaths,
+        bool paranoidMode,
+        IProgress<ScanProgress>? progress,
+        CancellationToken cancellationToken,
+        bool computeSimilarity,
+        int similarityMaxDistance,
+        bool computeBlur,
+        double blurryMaxSharpness,
+        bool computeAudioDupes,
+        bool collectVideoFiles)
+    {
+        var scanStartUtc = DateTime.UtcNow;
+        var hashProvider = new CachingHashProvider(new HashProvider(), _store);
+        var engine = new DuplicateEngine(hashProvider);
 
         // A synchronous relay (NOT Progress<T>: constructed on this worker
         // thread it would capture no SynchronizationContext and post every
@@ -145,26 +315,113 @@ public sealed class ScanOrchestrator
         progress?.Report(new ScanProgress(0, CurrentPath: "", Phase: ScanPhase.Finalizing));
 
         IReadOnlyList<SimilarityGroup> similarityGroups = Array.Empty<SimilarityGroup>();
-        if (computeSimilarity)
+        IReadOnlyList<Models.FileRecord> blurryPhotos = Array.Empty<Models.FileRecord>();
+        if (computeSimilarity || computeBlur)
         {
-            // Image-only, and only after DuplicateEngine has already run - the
-            // exact-duplicate paths below are what let similarity grouping
-            // exclude byte-identical files (new-screens 4k: "not exact copies").
-            // Opt-in (computeSimilarity): a plain scan does exact matching only.
-            foreach (var file in files)
+            // Image-only. Perceptual hashing + the sharpness score both decode
+            // every image (Image.FromFile) - the slowest part. Parallelize the
+            // decode (the store cache is thread-safe: a ConcurrentDictionary memo
+            // over a lock-serialized connection) and report throttled, monotonic
+            // progress, so the "Almost done" phase visibly MOVES instead of
+            // sitting silent for minutes on a large photo folder (which read as a
+            // hang). requireSharpness forces a recompute of any row hashed before
+            // F9 so it gains a sharpness score.
+            var imageFiles = files.Where(f => f.Category == MimeCategory.Image).ToList();
+            if (imageFiles.Count > 0)
             {
-                if (file.Category == MimeCategory.Image)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    ComputePerceptualHashIfNeeded(file, hashProvider);
-                }
+                var processed = 0;
+                var lastReported = 0;
+                var throttle = Stopwatch.StartNew();
+                var reportGate = new object();
+                Parallel.ForEach(
+                    imageFiles,
+                    new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = Environment.ProcessorCount },
+                    file =>
+                    {
+                        ComputePerceptualHashIfNeeded(file, hashProvider, requireSharpness: computeBlur);
+                        var done = Interlocked.Increment(ref processed);
+                        if (progress is null)
+                        {
+                            return;
+                        }
+
+                        lock (reportGate)
+                        {
+                            if (done > lastReported && (done == imageFiles.Count || throttle.Elapsed >= ProgressInterval))
+                            {
+                                lastReported = done;
+                                throttle.Restart();
+                                progress.Report(new ScanProgress(done, CurrentPath: "", Phase: ScanPhase.Finalizing, TotalFiles: imageFiles.Count));
+                            }
+                        }
+                    });
             }
 
-            var exactDuplicatePaths = groups
-                .SelectMany(g => g.Files)
-                .Select(f => f.Path)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            similarityGroups = new SimilarityEngine().FindSimilarGroups(files, exactDuplicatePaths, cancellationToken);
+            if (computeSimilarity)
+            {
+                // The exact-duplicate paths let similarity grouping exclude
+                // byte-identical files (new-screens 4k: "not exact copies").
+                var exactDuplicatePaths = groups
+                    .SelectMany(g => g.Files)
+                    .Select(f => f.Path)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                similarityGroups = new SimilarityEngine(similarityMaxDistance).FindSimilarGroups(files, exactDuplicatePaths, cancellationToken);
+            }
+
+            if (computeBlur)
+            {
+                // Below the sharpness threshold = likely blurry (F9). Blurriest
+                // first. Never auto-selected - purely a review candidate list.
+                blurryPhotos = imageFiles
+                    .Where(f => f.Sharpness is { } s && s <= blurryMaxSharpness)
+                    .OrderBy(f => f.Sharpness)
+                    .ToList();
+            }
+        }
+
+        // Duplicate songs (F10): read each audio file's tags (cheap vs an image
+        // decode, but still parallelized + progress-reported), then group same-
+        // song encodings. Independent of the image passes above.
+        IReadOnlyList<AudioDuplicateEngine.MusicGroup> musicGroups = Array.Empty<AudioDuplicateEngine.MusicGroup>();
+        if (computeAudioDupes)
+        {
+            var audioFiles = files.Where(f => f.Category == MimeCategory.Audio).ToList();
+            if (audioFiles.Count > 0)
+            {
+                var read = new System.Collections.Concurrent.ConcurrentBag<(Models.FileRecord File, AudioInfo Info)>();
+                var processed = 0;
+                var lastReported = 0;
+                var throttle = Stopwatch.StartNew();
+                var reportGate = new object();
+                Parallel.ForEach(
+                    audioFiles,
+                    new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = Environment.ProcessorCount },
+                    file =>
+                    {
+                        if (AudioSignatureService.TryRead(file.Path) is { } info)
+                        {
+                            read.Add((file, info));
+                        }
+
+                        var done = Interlocked.Increment(ref processed);
+                        if (progress is null)
+                        {
+                            return;
+                        }
+
+                        lock (reportGate)
+                        {
+                            if (done > lastReported && (done == audioFiles.Count || throttle.Elapsed >= ProgressInterval))
+                            {
+                                lastReported = done;
+                                throttle.Restart();
+                                progress.Report(new ScanProgress(done, CurrentPath: "", Phase: ScanPhase.Finalizing, TotalFiles: audioFiles.Count));
+                            }
+                        }
+                    });
+
+                musicGroups = new AudioDuplicateEngine().FindDuplicateSongs(read.ToList(), cancellationToken);
+            }
         }
 
         // One transaction for the whole scan's rows (per-row autocommit is
@@ -174,11 +431,26 @@ public sealed class ScanOrchestrator
         _store.UpsertFiles(files, cancellationToken);
         _store.PruneFilesNotSeenSince(HardBlockRules.NormalizePath(rootPath), scanStartUtc);
 
+        // Housekeeping byproduct (F5) - a cheap metadata walk after the heavy
+        // hashing is done, honoring the same hidden/protected toggles as the scan.
+        var emptyItems = new EmptyItemScanner().Find(rootPath, includeHiddenFiles, allowProtectedPaths, cancellationToken);
+
+        // Duplicate FOLDERS (F8) - derived purely from the file-level groups just
+        // computed, no extra hashing.
+        var duplicateFolders = new DuplicateFolderEngine().FindDuplicateFolders(files, groups, cancellationToken);
+
         return new ScanResult
         {
             DuplicateGroups = groups,
             TotalFilesScanned = files.Count,
             SimilarityGroups = similarityGroups,
+            EmptyItems = emptyItems,
+            DuplicateFolders = duplicateFolders,
+            BlurryPhotos = blurryPhotos,
+            MusicGroups = musicGroups,
+            VideoFiles = collectVideoFiles
+                ? files.Where(f => f.Category == MimeCategory.Video).ToList()
+                : Array.Empty<Models.FileRecord>(),
         };
     }
 
@@ -186,16 +458,35 @@ public sealed class ScanOrchestrator
     // for PartialHash/FullHash - and it reuses that provider's memoized
     // store lookup, so an image pays at most one point query per scan
     // instead of one here plus one per hash call.
-    private static void ComputePerceptualHashIfNeeded(FileRecord file, CachingHashProvider hashProvider)
+    private static void ComputePerceptualHashIfNeeded(FileRecord file, CachingHashProvider hashProvider, bool requireSharpness)
     {
         var cached = hashProvider.GetCachedRecord(file.Path);
-        if (cached is { PerceptualHash: { } hash } && cached.LastWriteTimeUtc == file.LastWriteTimeUtc && cached.SizeBytes == file.SizeBytes)
+        // Require the colour signature AND the current hash version: a row cached
+        // before the colour grid existed (no ColorSignature) or under the old
+        // dHash algorithm (PerceptualHashVersion != current) must recompute rather
+        // than have its stale value compared as if it were a current pHash. When
+        // the blur pass (F9) is on, also require a cached Sharpness - rows hashed
+        // before F9 don't have one, so they recompute to fill it.
+        if (cached is { PerceptualHash: { } hash, ColorSignature: { } color, PerceptualHashVersion: PerceptualHashService.HashVersion }
+            && (!requireSharpness || cached.Sharpness is not null)
+            && cached.LastWriteTimeUtc == file.LastWriteTimeUtc && cached.SizeBytes == file.SizeBytes)
         {
             file.PerceptualHash = hash;
+            file.ColorSignature = color;
+            file.PixelWidth = cached.PixelWidth;
+            file.PixelHeight = cached.PixelHeight;
+            file.PerceptualHashVersion = cached.PerceptualHashVersion;
+            file.Sharpness = cached.Sharpness;
             return;
         }
 
-        file.PerceptualHash = PerceptualHashService.TryComputeHash(file.Path);
+        var info = PerceptualHashService.TryCompute(file.Path);
+        file.PerceptualHash = info?.Hash;
+        file.ColorSignature = info?.ColorSignature;
+        file.PixelWidth = info?.PixelWidth;
+        file.PixelHeight = info?.PixelHeight;
+        file.PerceptualHashVersion = info is null ? null : PerceptualHashService.HashVersion;
+        file.Sharpness = info?.Sharpness;
     }
 
     /// <summary>
@@ -215,17 +506,36 @@ public sealed class ScanOrchestrator
         bool excludeCloudPlaceholders = false,
         CancellationToken cancellationToken = default)
     {
+        var enumeration = EnumerateForScan(rootPath, progress, includeHiddenFiles, allowProtectedPaths, cancellationToken);
+        return ScanForLargeFilesEnumerated(enumeration, rootPath, excludeCloudPlaceholders, cancellationToken);
+    }
+
+    /// <summary>
+    /// The Large Files result built over an already-enumerated file list (see
+    /// EnumerateForScan), so the tree is walked once even when the caller prompted
+    /// about cloud placeholders in between. No hashing - just a size-based listing.
+    /// </summary>
+    public ScanResult ScanForLargeFilesEnumerated(
+        ScanEnumeration enumeration,
+        string rootPath,
+        bool excludeCloudPlaceholders = false,
+        CancellationToken cancellationToken = default)
+    {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var enumerator = new FileEnumerator();
-        var files = EnumerateWithProgress(
-            enumerator, rootPath, progress, includeHiddenFiles, allowProtectedPaths, excludeCloudPlaceholders, cancellationToken);
+        var files = excludeCloudPlaceholders
+            ? enumeration.Files.Where(f => !f.IsCloudPlaceholder).ToList()
+            : enumeration.Files;
+
+        // Housekeeping byproduct (F5) - same cheap metadata walk as Scan.
+        var emptyItems = new EmptyItemScanner().Find(rootPath, enumeration.IncludeHiddenFiles, enumeration.AllowProtectedPaths, cancellationToken);
 
         return new ScanResult
         {
             DuplicateGroups = Array.Empty<DuplicateGroup>(),
             TotalFilesScanned = files.Count,
             AllFiles = files,
+            EmptyItems = emptyItems,
         };
     }
 

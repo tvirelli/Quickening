@@ -62,6 +62,45 @@ public sealed class SqliteStore : IDisposable
             // differs - so rebuild any legacy table in place.
             MigratePathCollationIfNeeded();
 
+            // Pixel dimensions (F3 keep-best) added after PerceptualHash - same
+            // additive-ALTER pattern. Placed after the collation rebuild so they
+            // land on the final table regardless of which path produced it.
+            if (!ColumnExists("Files", "PixelWidth"))
+            {
+                using var alterWidth = _connection.CreateCommand();
+                alterWidth.CommandText = "ALTER TABLE Files ADD COLUMN PixelWidth INTEGER;";
+                alterWidth.ExecuteNonQuery();
+            }
+            if (!ColumnExists("Files", "PixelHeight"))
+            {
+                using var alterHeight = _connection.CreateCommand();
+                alterHeight.CommandText = "ALTER TABLE Files ADD COLUMN PixelHeight INTEGER;";
+                alterHeight.ExecuteNonQuery();
+            }
+            if (!ColumnExists("Files", "ColorSignature"))
+            {
+                using var alterColor = _connection.CreateCommand();
+                alterColor.CommandText = "ALTER TABLE Files ADD COLUMN ColorSignature BLOB;";
+                alterColor.ExecuteNonQuery();
+            }
+            // Which hash algorithm produced PerceptualHash. Rows written before
+            // this column existed are the old dHash (v1) and read back as NULL,
+            // which the scan treats as "recompute" - so the pHash rollout doesn't
+            // compare stale dHash values as if they were pHashes.
+            if (!ColumnExists("Files", "PerceptualHashVersion"))
+            {
+                using var alterVersion = _connection.CreateCommand();
+                alterVersion.CommandText = "ALTER TABLE Files ADD COLUMN PerceptualHashVersion INTEGER;";
+                alterVersion.ExecuteNonQuery();
+            }
+            // Sharpness score (F9 blur detection), added after the colour grid.
+            if (!ColumnExists("Files", "Sharpness"))
+            {
+                using var alterSharpness = _connection.CreateCommand();
+                alterSharpness.CommandText = "ALTER TABLE Files ADD COLUMN Sharpness REAL;";
+                alterSharpness.ExecuteNonQuery();
+            }
+
             using (var pragmaCommand = _connection.CreateCommand())
             {
                 pragmaCommand.CommandText = "PRAGMA journal_mode=WAL;";
@@ -170,8 +209,8 @@ public sealed class SqliteStore : IDisposable
         // discard stored hashes when size/mtime actually changed; otherwise
         // keep whichever value is non-null.
         command.CommandText = """
-            INSERT INTO Files (Path, SizeBytes, LastWriteTimeUtc, PartialHash, FullHash, PerceptualHash, MimeCategory, FirstSeenUtc, LastSeenUtc)
-            VALUES ($path, $size, $mtime, $partialHash, $fullHash, $perceptualHash, $category, $now, $now)
+            INSERT INTO Files (Path, SizeBytes, LastWriteTimeUtc, PartialHash, FullHash, PerceptualHash, PerceptualHashVersion, PixelWidth, PixelHeight, ColorSignature, Sharpness, MimeCategory, FirstSeenUtc, LastSeenUtc)
+            VALUES ($path, $size, $mtime, $partialHash, $fullHash, $perceptualHash, $perceptualHashVersion, $pixelWidth, $pixelHeight, $colorSignature, $sharpness, $category, $now, $now)
             ON CONFLICT(Path) DO UPDATE SET
                 PartialHash = CASE WHEN Files.SizeBytes = excluded.SizeBytes AND Files.LastWriteTimeUtc = excluded.LastWriteTimeUtc
                     THEN COALESCE(excluded.PartialHash, Files.PartialHash) ELSE excluded.PartialHash END,
@@ -179,6 +218,16 @@ public sealed class SqliteStore : IDisposable
                     THEN COALESCE(excluded.FullHash, Files.FullHash) ELSE excluded.FullHash END,
                 PerceptualHash = CASE WHEN Files.SizeBytes = excluded.SizeBytes AND Files.LastWriteTimeUtc = excluded.LastWriteTimeUtc
                     THEN COALESCE(excluded.PerceptualHash, Files.PerceptualHash) ELSE excluded.PerceptualHash END,
+                PerceptualHashVersion = CASE WHEN Files.SizeBytes = excluded.SizeBytes AND Files.LastWriteTimeUtc = excluded.LastWriteTimeUtc
+                    THEN COALESCE(excluded.PerceptualHashVersion, Files.PerceptualHashVersion) ELSE excluded.PerceptualHashVersion END,
+                PixelWidth = CASE WHEN Files.SizeBytes = excluded.SizeBytes AND Files.LastWriteTimeUtc = excluded.LastWriteTimeUtc
+                    THEN COALESCE(excluded.PixelWidth, Files.PixelWidth) ELSE excluded.PixelWidth END,
+                PixelHeight = CASE WHEN Files.SizeBytes = excluded.SizeBytes AND Files.LastWriteTimeUtc = excluded.LastWriteTimeUtc
+                    THEN COALESCE(excluded.PixelHeight, Files.PixelHeight) ELSE excluded.PixelHeight END,
+                ColorSignature = CASE WHEN Files.SizeBytes = excluded.SizeBytes AND Files.LastWriteTimeUtc = excluded.LastWriteTimeUtc
+                    THEN COALESCE(excluded.ColorSignature, Files.ColorSignature) ELSE excluded.ColorSignature END,
+                Sharpness = CASE WHEN Files.SizeBytes = excluded.SizeBytes AND Files.LastWriteTimeUtc = excluded.LastWriteTimeUtc
+                    THEN COALESCE(excluded.Sharpness, Files.Sharpness) ELSE excluded.Sharpness END,
                 SizeBytes = excluded.SizeBytes,
                 LastWriteTimeUtc = excluded.LastWriteTimeUtc,
                 MimeCategory = excluded.MimeCategory,
@@ -198,6 +247,11 @@ public sealed class SqliteStore : IDisposable
         // whether the top bit is set (a dHash frequently sets it - it's a
         // plain bit pattern, not a magnitude).
         command.Parameters.AddWithValue("$perceptualHash", record.PerceptualHash is { } hash ? unchecked((long)hash) : DBNull.Value);
+        command.Parameters.AddWithValue("$perceptualHashVersion", record.PerceptualHashVersion is { } phv ? phv : (object)DBNull.Value);
+        command.Parameters.AddWithValue("$pixelWidth", record.PixelWidth is { } pw ? pw : (object)DBNull.Value);
+        command.Parameters.AddWithValue("$pixelHeight", record.PixelHeight is { } ph ? ph : (object)DBNull.Value);
+        command.Parameters.AddWithValue("$colorSignature", (object?)record.ColorSignature ?? DBNull.Value);
+        command.Parameters.AddWithValue("$sharpness", record.Sharpness is { } sharp ? sharp : (object)DBNull.Value);
         command.Parameters.AddWithValue("$category", record.Category.ToString());
         command.Parameters.AddWithValue("$now", now);
         command.ExecuteNonQuery();
@@ -274,7 +328,7 @@ public sealed class SqliteStore : IDisposable
         {
             using var command = _connection.CreateCommand();
             command.CommandText = """
-                SELECT SizeBytes, LastWriteTimeUtc, MimeCategory, PartialHash, FullHash, PerceptualHash
+                SELECT SizeBytes, LastWriteTimeUtc, MimeCategory, PartialHash, FullHash, PerceptualHash, PixelWidth, PixelHeight, ColorSignature, PerceptualHashVersion, Sharpness
                 FROM Files
                 WHERE Path = $path;
                 """;
@@ -299,6 +353,11 @@ public sealed class SqliteStore : IDisposable
                 PartialHash = reader.IsDBNull(3) ? null : (byte[])reader[3],
                 FullHash = reader.IsDBNull(4) ? null : (byte[])reader[4],
                 PerceptualHash = reader.IsDBNull(5) ? null : unchecked((ulong)reader.GetInt64(5)),
+                PixelWidth = reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                PixelHeight = reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                ColorSignature = reader.IsDBNull(8) ? null : (byte[])reader[8],
+                PerceptualHashVersion = reader.IsDBNull(9) ? null : reader.GetInt32(9),
+                Sharpness = reader.IsDBNull(10) ? null : reader.GetDouble(10),
             };
         }
     }

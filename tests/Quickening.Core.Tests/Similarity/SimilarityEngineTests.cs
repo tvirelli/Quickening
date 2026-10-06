@@ -6,24 +6,39 @@ namespace Quickening.Core.Tests.Similarity;
 
 public class SimilarityEngineTests
 {
-    private static FileRecord MakeImage(string path, ulong perceptualHash) => new()
+    // A uniform 4x4 colour grid, so tests that only care about the brightness
+    // hash still pass the new colour-match requirement (matching colours).
+    private static byte[] MakeColor(byte v)
+    {
+        var a = new byte[48];
+        Array.Fill(a, v);
+        return a;
+    }
+
+    private static readonly byte[] DefaultColor = MakeColor(100);
+
+    private static FileRecord MakeImage(string path, ulong perceptualHash, byte[]? colorSignature = null) => new()
     {
         Path = path,
         SizeBytes = 100,
         LastWriteTimeUtc = DateTime.UtcNow,
         Category = MimeCategory.Image,
         PerceptualHash = perceptualHash,
+        ColorSignature = colorSignature ?? DefaultColor,
     };
 
     [Fact]
     public void FindSimilarGroups_GroupsTwoImages_WithSmallHammingDistance()
     {
         var engine = new SimilarityEngine();
-        // 0b...0000 vs 0b...0011 differ in 2 bits - well within the threshold.
+        // A realistic (non-degenerate) hash and a copy 2 bits different - well
+        // within the threshold, and both with enough set bits to be real images
+        // (degenerate near-flat hashes are now excluded from matching).
+        const ulong baseHash = 0xA5A5_5A5A_0F0F_F0F0UL;
         var files = new[]
         {
-            MakeImage(@"C:\a.jpg", 0x0000000000000000UL),
-            MakeImage(@"C:\b.jpg", 0x0000000000000003UL),
+            MakeImage(@"C:\a.jpg", baseHash),
+            MakeImage(@"C:\b.jpg", baseHash ^ 0x3UL),
         };
 
         var groups = engine.FindSimilarGroups(files);
@@ -118,15 +133,37 @@ public class SimilarityEngineTests
     public void FindSimilarGroups_MatchPercentIsHigh_ForNearlyIdenticalHashes()
     {
         var engine = new SimilarityEngine();
+        const ulong baseHash = 0xA5A5_5A5A_0F0F_F0F0UL;
         var files = new[]
         {
-            MakeImage(@"C:\a.jpg", 0x0000000000000000UL),
-            MakeImage(@"C:\b.jpg", 0x0000000000000001UL), // 1 bit different out of 64
+            MakeImage(@"C:\a.jpg", baseHash),
+            MakeImage(@"C:\b.jpg", baseHash ^ 0x1UL), // 1 bit different out of 64
         };
 
         var groups = engine.FindSimilarGroups(files);
 
         Assert.Single(groups);
         Assert.True(groups[0].MatchPercent >= 95, $"expected a high match percent, got {groups[0].MatchPercent}");
+    }
+
+    [Fact]
+    public void FindSimilarGroups_DoesNotGroup_SameStructureButDifferentColour()
+    {
+        // Identical brightness hash (same light/dark layout) but very different
+        // colours - a grey image vs a red one, the "B&W cube matched a colourful
+        // photo at 88%" bug. Colour must veto the brightness-only match.
+        const ulong sharedHash = 0xA5A5_5A5A_0F0F_F0F0UL;
+        var red = new byte[48];
+        for (var i = 0; i < 48; i += 3) { red[i] = 200; red[i + 1] = 20; red[i + 2] = 20; }
+
+        var files = new[]
+        {
+            MakeImage(@"C:\grey.png", sharedHash, MakeColor(128)),
+            MakeImage(@"C:\red.png", sharedHash, red),
+        };
+
+        var groups = new SimilarityEngine().FindSimilarGroups(files);
+
+        Assert.Empty(groups);
     }
 }

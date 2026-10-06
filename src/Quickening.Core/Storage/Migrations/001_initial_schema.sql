@@ -6,6 +6,11 @@ CREATE TABLE IF NOT EXISTS Files (
     PartialHash BLOB,
     FullHash BLOB,
     PerceptualHash INTEGER,
+    PerceptualHashVersion INTEGER,
+    PixelWidth INTEGER,
+    PixelHeight INTEGER,
+    ColorSignature BLOB,
+    Sharpness REAL,
     MimeCategory TEXT NOT NULL,
     FirstSeenUtc TEXT NOT NULL,
     LastSeenUtc TEXT NOT NULL

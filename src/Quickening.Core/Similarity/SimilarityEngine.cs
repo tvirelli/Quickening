@@ -11,12 +11,49 @@ namespace Quickening.Core.Similarity;
 /// </summary>
 public sealed class SimilarityEngine
 {
-    // A dHash Hamming distance of 0-10 (out of 64 bits) is the commonly-cited
-    // threshold for "probably the same subject, worth a second look" without
-    // being so loose that unrelated photos collide - this is a heuristic,
-    // not a precise similarity metric (see SimilarityGroup.MatchPercent's
-    // own doc comment).
-    private const int MaxHammingDistance = 10;
+    // Max pHash Hamming distance (out of 64 bits) for "probably the same subject,
+    // worth a second look". ~10 is the commonly-cited pHash threshold; the F2
+    // tolerance slider rides on this (stricter = smaller, looser = larger),
+    // passed in per scan. This is a heuristic, not a precise similarity metric
+    // (see SimilarityGroup.MatchPercent's own doc comment).
+    public const int DefaultMaxHammingDistance = 10;
+    public const int MinMaxHammingDistance = 2;
+    public const int MaxMaxHammingDistance = 18;
+
+    private readonly int _maxHammingDistance;
+
+    public SimilarityEngine(int maxHammingDistance = DefaultMaxHammingDistance)
+    {
+        _maxHammingDistance = Math.Clamp(maxHammingDistance, MinMaxHammingDistance, MaxMaxHammingDistance);
+    }
+
+    // Near-uniform images (a blank page, a solid colour, a transparent canvas
+    // with a thin line) downsample to an almost-flat grid, so their dHash has
+    // almost no set bits - or almost all - a degenerate value that collides
+    // with every other flat image and produced "these look nothing alike but
+    // matched 88%" false groups. Exclude them from matching; a real photo's
+    // dHash sits well inside this band (typically ~25-40 of 64 bits set).
+    // Low-detail images - a logo or product shot on a big uniform background -
+    // have few brightness transitions, so their dHash sits near one extreme and
+    // collides with every other low-detail image (the "7 dark logos matched at
+    // 95%" clusters). A real photo has plenty of transitions and sits in the
+    // middle of this band. Widened from the original 6/58 to actually exclude
+    // those clusters.
+    private const int MinSetBits = 12;
+    private const int MaxSetBits = 52;
+
+    private static bool IsDegenerateHash(ulong hash)
+    {
+        var bits = System.Numerics.BitOperations.PopCount(hash);
+        return bits < MinSetBits || bits > MaxSetBits;
+    }
+
+    // Max allowed WORST-cell colour difference. A whole-image average is
+    // dominated by a large uniform background (a red logo and a grey wheel are
+    // both ~90% white), so instead require every region's colour to be close -
+    // the differently-coloured subject then vetoes the match. Tunable; the
+    // eventual tolerance slider (F2) will ride on this.
+    private const int MaxCellColorThreshold = 120;
 
     /// <summary>
     /// candidateFiles should already be filtered to image-category files
@@ -35,6 +72,7 @@ public sealed class SimilarityEngine
     {
         var images = candidateFiles
             .Where(f => f.Category == MimeCategory.Image && f.PerceptualHash is not null)
+            .Where(f => !IsDegenerateHash(f.PerceptualHash!.Value))
             .Where(f => exactDuplicatePaths is null || !exactDuplicatePaths.Contains(f.Path))
             .ToList();
 
@@ -76,10 +114,10 @@ public sealed class SimilarityEngine
             visited[anchorIndex] = true;
             var anchor = images[anchorIndex];
             var members = new List<FileRecord> { anchor };
-            var closestDistance = int.MaxValue;
+            var worstDistance = 0;
 
             neighbors.Clear();
-            tree.CollectWithinDistance(anchor.PerceptualHash!.Value, MaxHammingDistance, neighbors);
+            tree.CollectWithinDistance(anchor.PerceptualHash!.Value, _maxHammingDistance, neighbors);
 
             // Expand matched hash values to their records, preserving the
             // original enumeration order for stable group membership.
@@ -98,9 +136,17 @@ public sealed class SimilarityEngine
             matched.Sort((a, b) => a.Index.CompareTo(b.Index));
             foreach (var (record, index, distance) in matched)
             {
+                // Brightness structure matched (small Hamming); also require the
+                // COLOUR grids to be close. Skipping (not visiting) a colour
+                // mismatch leaves it free to anchor its own group later.
+                if (PerceptualHashService.MaxCellColorDistance(anchor.ColorSignature, record.ColorSignature) > MaxCellColorThreshold)
+                {
+                    continue;
+                }
+
                 visited[index] = true;
                 members.Add(record);
-                closestDistance = Math.Min(closestDistance, distance);
+                worstDistance = Math.Max(worstDistance, distance);
             }
 
             if (members.Count < 2)
@@ -108,7 +154,11 @@ public sealed class SimilarityEngine
                 continue;
             }
 
-            var matchPercent = (int)Math.Round(100.0 * (64 - closestDistance) / 64.0);
+            // WORST member-to-anchor distance, not the closest: with 3+ members
+            // the closest pair's score overclaimed the whole group ("97%" on a
+            // group whose farthest member was barely inside the threshold).
+            // Conservative honesty for a list a user deletes from.
+            var matchPercent = (int)Math.Round(100.0 * (64 - worstDistance) / 64.0);
             groups.Add(new SimilarityGroup { Files = members, MatchPercent = matchPercent });
         }
 
