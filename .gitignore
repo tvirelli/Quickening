@@ -80,3 +80,6 @@ markdown-blog-spec.md
 /logo.png
 /og-image.png
 artifacts/
+
+# ---- Test run output ----
+TestResults/
