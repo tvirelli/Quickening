@@ -121,11 +121,13 @@ internal static class AdvancedOptionsDialog
         var audio = BuildToggleRow(
             resources,
             "Deep audio matching",
-            "Match songs by how they actually sound (acoustic fingerprint), even when the tags are wrong or missing.",
-            value: false,
-            onToggled: null,
-            enabled: false,
-            badge: "SOON");
+            "Finds the same recording even when names and tags differ — mastered vs original, MP3 vs WAV. Slower: it listens to every song.",
+            App.Settings.DeepAudioMatching,
+            isOn =>
+            {
+                App.Settings.DeepAudioMatching = isOn;
+                App.SaveSettings();
+            });
 
         var card = BuildGroupCard(resources, "Deep scan", photos, strictnessRow, videos, songs, audio);
         card.Margin = new Thickness(0, 20, 0, 0);

@@ -660,6 +660,38 @@ public sealed partial class HomePage : Page
         return new Quickening.Core.Similarity.VideoSimilarityEngine().FindSimilarVideos(signatures, cancellationToken);
     }
 
+    private static async Task<IReadOnlyList<Quickening.Core.Audio.SoundGroup>> ComputeSoundGroupsAsync(
+        IReadOnlyList<Quickening.Core.Models.FileRecord> audioFiles,
+        Quickening.Core.Storage.SqliteStore store,
+        IProgress<ProgressUpdate> progress,
+        CancellationToken cancellationToken)
+    {
+        progress.Report(new ProgressUpdate(0, audioFiles.Count, null,
+            StageHeadline: "Listening to songs…", StageSubtitle: "Fingerprinting audio to find the same recording."));
+
+        // Two decodes at a time: MediaTranscoder is agile, and decoding is the
+        // slow part (~0.3 s per song) - more parallelism mostly fights the disk.
+        var signatures = new System.Collections.Concurrent.ConcurrentBag<Quickening.Core.Audio.AcousticSignature>();
+        var done = 0;
+        await Parallel.ForEachAsync(
+            audioFiles,
+            new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cancellationToken },
+            async (file, ct) =>
+            {
+                if (await Media.AudioFingerprintService.TryGetSignatureAsync(file, store, ct) is { } signature)
+                {
+                    signatures.Add(signature);
+                }
+
+                var finished = Interlocked.Increment(ref done);
+                progress.Report(new ProgressUpdate(finished, audioFiles.Count, file.Path, StageHeadline: "Listening to songs…"));
+            });
+
+        return await Task.Run(
+            () => new Quickening.Core.Audio.AcousticMatchEngine().FindSameRecordings(signatures.ToList(), cancellationToken),
+            cancellationToken);
+    }
+
     private static async Task<bool> ResolveCloudPlaceholderChoiceAsync(int count, long bytes)
     {
         // The home page may be unloaded by now (we've navigated to ProgressPage),
@@ -731,7 +763,8 @@ public sealed partial class HomePage : Page
                             computeBlur: App.Settings.FlagBlurryPhotos,
                             blurryMaxSharpness: App.Settings.BlurryMaxSharpness,
                             computeAudioDupes: App.Settings.FindDuplicateSongs,
-                            collectVideoFiles: App.Settings.IncludeSimilarVideos),
+                            collectVideoFiles: App.Settings.IncludeSimilarVideos,
+                            collectAudioFiles: App.Settings.DeepAudioMatching),
                         cancellationToken);
 
                     // Video similarity (F11) needs WinRT frame extraction, which
@@ -753,6 +786,23 @@ public sealed partial class HomePage : Page
                         if (candidates.Count > 1)
                         {
                             result.VideoGroups = await ComputeVideoGroupsAsync(candidates, progress, cancellationToken);
+                        }
+                    }
+
+                    // Deep audio matching: decode + fingerprint here (WinRT), group
+                    // in Core. Byte-identical files are excluded, as for video.
+                    if (App.Settings.DeepAudioMatching && result.AudioFiles.Count > 1)
+                    {
+                        var exactDuplicatePaths = result.DuplicateGroups
+                            .SelectMany(g => g.Files)
+                            .Select(f => f.Path)
+                            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        var candidates = result.AudioFiles
+                            .Where(f => !exactDuplicatePaths.Contains(f.Path))
+                            .ToList();
+                        if (candidates.Count > 1)
+                        {
+                            result.SoundGroups = await ComputeSoundGroupsAsync(candidates, store, progress, cancellationToken);
                         }
                     }
 
