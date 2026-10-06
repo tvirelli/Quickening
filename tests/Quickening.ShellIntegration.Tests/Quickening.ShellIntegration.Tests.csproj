@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Shell-integration tests, deliberately ISOLATED in their own assembly (and
+    therefore their own test-host process): RecycleBinServiceTests drives the
+    REAL Windows shell (IFileOperation, the Recycle Bin's IContextMenu), which
+    loads third-party shell-extension DLLs into the host and leaves async
+    shell work behind. Inside Quickening.Core.Tests this intermittently
+    crashed the shared test host DURING LATER, UNRELATED tests, and vstest
+    then printed "Passed!" for a silently truncated run (totals varied
+    193-207 across identical invocations). In their own short-lived process,
+    the run ends right after these tests, so a delayed shell crash has no
+    window to kill anything. Verified empirically 2026-07-14: Core suite
+    5/5 stable without these tests, aborts ~50% of runs with them in-process
+    (including with serial collections and with the shell calls moved to an
+    STA thread - process isolation is what actually fixes it).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Quickening.Core\Quickening.Core.csproj" />
+  </ItemGroup>
+
+</Project>

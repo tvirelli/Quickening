@@ -13,6 +13,7 @@ namespace Quickening.Core.Shell;
 public static class DefaultAppResolver
 {
     private const int AssocfNone = 0;
+    private const int AssocStrExecutable = 2; // ASSOCSTR_EXECUTABLE
     private const int AssocStrFriendlyAppName = 4; // ASSOCSTR_FRIENDLYAPPNAME
     private const int SOk = 0;
 
@@ -30,26 +31,43 @@ public static class DefaultAppResolver
             return null;
         }
 
+        // An extension with no registered handler still "resolves" - to the
+        // Open With picker, whose friendly name is "Pick an app", which read
+        // as `Open "report.bin" in Pick an app?` (QA-9). That isn't an app the
+        // file will open in, so report no name and let the caller say
+        // "its default app".
+        var executable = Query(ext, AssocStrExecutable);
+        if (executable is not null
+            && Path.GetFileName(executable).Equals("OpenWith.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return Query(ext, AssocStrFriendlyAppName);
+    }
+
+    private static string? Query(string ext, int str)
+    {
         try
         {
             // Two-call idiom: the first call (null buffer) sets pcchOut to the
             // required length in characters; the second fills the buffer.
             uint length = 0;
-            AssocQueryString(AssocfNone, AssocStrFriendlyAppName, ext, null, null, ref length);
+            AssocQueryString(AssocfNone, str, ext, null, null, ref length);
             if (length == 0)
             {
                 return null;
             }
 
             var buffer = new StringBuilder((int)length);
-            var hr = AssocQueryString(AssocfNone, AssocStrFriendlyAppName, ext, null, buffer, ref length);
+            var hr = AssocQueryString(AssocfNone, str, ext, null, buffer, ref length);
             if (hr != SOk)
             {
                 return null;
             }
 
-            var name = buffer.ToString().Trim();
-            return string.IsNullOrEmpty(name) ? null : name;
+            var value = buffer.ToString().Trim();
+            return string.IsNullOrEmpty(value) ? null : value;
         }
         catch
         {

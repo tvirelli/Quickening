@@ -49,6 +49,13 @@ public class RecycleBinServiceTests
 
         var countAfter = GetRecycleBinItemCount();
         Assert.True(countAfter >= countBefore + 1, $"expected Recycle Bin item count to increase by at least 1 (was {countBefore}, now {countAfter})");
+
+        // Take it back out: otherwise every run left one temp file in the
+        // developer's real Recycle Bin.
+        if (service.TryRestore(tempFile))
+        {
+            File.Delete(tempFile);
+        }
     }
 
     [Fact]
@@ -114,6 +121,39 @@ public class RecycleBinServiceTests
         Assert.False(service.TryRestore(tempFile));
 
         File.Delete(tempFile);
+    }
+
+    [Fact]
+    public void TryRestore_RepeatedRoundTrips_DoNotCorruptTheProcessHeap()
+    {
+        // Regression: TryRestore handed each enumerated Recycle Bin PIDL to
+        // Vanara's owning PIDL wrapper AND freed it itself, a double free that
+        // corrupted the heap. Nothing failed at the time - the process died
+        // (0xC0000374) at the next heap churn or GC, which in the app was a
+        // few seconds after every Undo and here was a later, unrelated test.
+        // Forcing native and managed churn after each round makes damage
+        // surface inside this test: a regression aborts the test host, and
+        // the run's Total drops below the expected count.
+        var service = new RecycleBinService();
+        for (var round = 0; round < 10; round++)
+        {
+            var tempFile = Path.GetTempFileName();
+            File.WriteAllText(tempFile, $"heap round {round} - RecycleBinServiceTests");
+            service.SendToRecycleBin(tempFile);
+
+            Assert.True(service.TryRestore(tempFile));
+            Assert.True(File.Exists(tempFile));
+            File.Delete(tempFile);
+
+            for (var i = 0; i < 2000; i++)
+            {
+                var block = Marshal.AllocHGlobal(64 + i % 512);
+                Marshal.FreeHGlobal(block);
+            }
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
     }
 
     [Fact]

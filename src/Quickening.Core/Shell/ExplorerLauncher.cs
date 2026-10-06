@@ -36,7 +36,12 @@ public static class ExplorerLauncher
         var folder = Path.GetDirectoryName(filePath);
         if (!string.IsNullOrEmpty(folder))
         {
-            Process.Start("explorer.exe", $"\"{folder}\"");
+            // ArgumentList (not a hand-built $"\"{folder}\"" string): a
+            // drive-root folder is "C:\" whose trailing backslash escaped the
+            // hand-quoted closing quote and handed explorer a mangled argument.
+            var startInfo = new ProcessStartInfo("explorer.exe");
+            startInfo.ArgumentList.Add(folder);
+            Process.Start(startInfo);
         }
     }
 }

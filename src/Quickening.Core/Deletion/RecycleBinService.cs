@@ -332,7 +332,15 @@ public sealed class RecycleBinService : IRecycleBinService
                 }
 
                 var pidl = buffer[0];
-                recycleBinFolder.GetDisplayNameOf(pidl, SHGDNF.SHGDN_FORPARSING, out var strret);
+                // GetDisplayNameOf takes Vanara's PIDL, an owning SafeHandle:
+                // the implicit IntPtr -> PIDL conversion would take ownership
+                // and free this pointer when the wrapper is finalized, on top
+                // of the FreeCoTaskMem in the finally block below - a double
+                // free that corrupted the process heap and crashed the app
+                // shortly after every Undo. Wrap it non-owning; the finally
+                // block stays the single owner of every enumerated PIDL.
+                using var borrowedPidl = new PIDL(pidl, clone: false, own: false);
+                recycleBinFolder.GetDisplayNameOf(borrowedPidl, SHGDNF.SHGDN_FORPARSING, out var strret);
                 string parsingName = strret.ToString() ?? "";
 
                 if (matchedPidl == IntPtr.Zero && string.Equals(parsingName, binPhysicalPath, StringComparison.OrdinalIgnoreCase))
