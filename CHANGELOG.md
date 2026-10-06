@@ -6,6 +6,37 @@ automatically, so you're normally on the latest version already.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and
 Quickening follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-10-06
+
+### Added
+- Advanced Options: find similar photos (perceptual hash with a strictness
+  slider), blurry photos (sharpness score with a strictness slider), duplicate
+  songs (same title/artist/length across formats and bitrates), and similar
+  videos (sampled-frame matching).
+- Keep best for similar photos: resolution, then clearly sharper (15%), then
+  original format (RAW > lossless > lossy), then file size; the keeper's badge
+  names the deciding reason.
+- Tidy up: empty folders and zero-byte files, sent to the Recycle Bin.
+- Duplicate folders: whole-folder copies, verified against what's on disk.
+- Ignore files and folders from results and future scans; ignored items are
+  never selectable or deletable. Settings > Manage Ignored Files.
+- Results page rebuilt as collapsible sections with a SHOW checklist.
+- Modified time shown to the second; a keeper that only wins on fractions of a
+  second is labelled plain "KEEP".
+- Per-date clear buttons on the Modified filter.
+
+### Fixed
+- Crash shortly after Undo (Recycle Bin item IDs were freed twice).
+- "Rescan at 50 MB" never ran and left every later scan refused.
+- CSV export is written as UTF-8 with a BOM, so Excel shows non-ASCII text.
+- Esc closes the compare viewer; similar-photo groups use their own wording.
+- Accessible names for file rows, checkboxes, switches, and sliders.
+- Category counts and the Large Files header exclude ignored files.
+- Celebration screen and Recycle Bin pill update immediately after Undo; the
+  Undo toast lasts 15 seconds.
+- POWER USER badge was clipped out of view; window minimum is now 1024x700.
+- An unreadable subfolder no longer makes its parent look empty in Tidy up.
+
 ## [1.2.0] - 2026-07-12
 
 ### Added
