@@ -6,6 +6,19 @@ automatically, so you're normally on the latest version already.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and
 Quickening follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.2] - 2026-10-14
+
+### Added
+- "Update ready" banner with Restart to update (Velopack apply-and-restart);
+  a Windows notification with the same button when the window is hidden in
+  the tray, once per version. Restart waits while a scan or removal runs.
+- Update rechecks every 6 hours while the app is running.
+
+### Changed
+- A staged update the user didn't restart for now installs silently on exit
+  (no installer window). Settings > Check for updates offers Restart to
+  update once an update is ready.
+
 ## [1.3.1] - 2026-10-14
 
 ### Changed

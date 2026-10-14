@@ -1418,6 +1418,7 @@ public sealed partial class ResultsPage : Page
             RingHue: ProgressRingHue.Success,
             Operation: async (progress, cancellationToken) =>
             {
+                using var removing = RemovalActivity.Begin();
                 var sizeBefore = totalSizeBytes;
                 var failed = await _viewModel.DeleteSelectedAsync(
                     new Progress<DeleteProgress>(p =>

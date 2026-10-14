@@ -673,6 +673,20 @@ internal static class SettingsDialog
             VerticalAlignment = VerticalAlignment.Center,
         };
         button.SetValue(Controls.PillCornerRadius.EnabledProperty, true);
+
+        // Once an update has downloaded, the button becomes Restart to update
+        // (1.3.2) - same action as the main window's banner.
+        void ShowReady(string version)
+        {
+            status.Text = $"{Updates.UpdatePrompt.BannerTitle(version)}.";
+            button.Content = "Restart to update";
+        }
+
+        if (App.Updater?.StagedVersion is { } staged)
+        {
+            ShowReady(staged);
+        }
+
         button.Click += async (_, _) =>
         {
             if (App.Updater is null)
@@ -681,15 +695,32 @@ internal static class SettingsDialog
                 return;
             }
 
+            if (App.Updater.StagedVersion is not null)
+            {
+                if (App.RestartToUpdate() is { } blocked)
+                {
+                    status.Text = blocked;
+                }
+
+                return;
+            }
+
             button.IsEnabled = false;
             status.Text = "Checking…";
             var result = await App.Updater.CheckNowAsync();
-            status.Text = result switch
+            if (result == UpdateCheckResult.UpdateStaged && App.Updater.StagedVersion is { } version)
             {
-                UpdateCheckResult.UpToDate => "You're on the latest version.",
-                UpdateCheckResult.UpdateStaged => "Update downloaded — it'll finish next time you reopen Quickening.",
-                _ => "Couldn't check right now. Try again later.",
-            };
+                ShowReady(version);
+            }
+            else
+            {
+                status.Text = result switch
+                {
+                    UpdateCheckResult.UpToDate => "You're on the latest version.",
+                    _ => "Couldn't check right now. Try again later.",
+                };
+            }
+
             button.IsEnabled = true;
         };
         Grid.SetColumn(button, 1);

@@ -134,7 +134,11 @@ public sealed partial class HousekeepingPage : Page
         }
 
         RemoveButton.IsEnabled = false;
-        var failed = await _viewModel.DeleteSelectedAsync(selected);
+        IReadOnlyList<string> failed;
+        using (RemovalActivity.Begin())
+        {
+            failed = await _viewModel.DeleteSelectedAsync(selected);
+        }
 
         // Back on the UI thread (WinUI resumes await here): drop every selected
         // item that wasn't refused from its collection.
