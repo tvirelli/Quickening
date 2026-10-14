@@ -384,6 +384,66 @@ public sealed class MusicGroupViewModel : INotifyPropertyChanged
 /// </summary>
 public sealed record DeleteProgress(int Processed, int Total, string Path);
 
+/// <summary>The results page's section keys (the SHOW list and HiddenSections).</summary>
+public static class ResultSections
+{
+    public const string Duplicates = "duplicates";
+    public const string Similar = "similar";
+    public const string Video = "video";
+    public const string Music = "music";
+    public const string Blurry = "blurry";
+    public const string Ignored = "ignored";
+}
+
+/// <summary>
+/// The group header checkbox (1.3.1). Clicks cycle: everything ticked, then
+/// all but the copy to keep, then nothing. The state is read from the files,
+/// so ticking rows by hand moves the header too, and the next click carries
+/// on from what it shows - a partly ticked group ("some", the dash) clears.
+/// </summary>
+public static class GroupSelection
+{
+    /// <summary>True all ticked, false none, null some (network-drive files can't be ticked and don't count).</summary>
+    public static bool? StateOf(IReadOnlyList<SelectableFile> files)
+    {
+        var tickable = files.Where(f => !f.IsOnNetworkDrive).ToList();
+        var selected = tickable.Count(f => f.IsSelected);
+        return selected == 0 ? false : selected == tickable.Count ? true : null;
+    }
+
+    public static void Advance(IReadOnlyList<SelectableFile> files)
+    {
+        switch (StateOf(files))
+        {
+            case false:
+                Set(files, _ => true);
+                break;
+            case true:
+                var keeper = KeeperOf(files);
+                Set(files, f => !ReferenceEquals(f, keeper));
+                break;
+            default:
+                Set(files, _ => false);
+                break;
+        }
+    }
+
+    // The copy "all but one" leaves: the duplicate group's KEEP file, else the
+    // BEST QUALITY / HIGHER RES copy of a look-alike or song group, else the first.
+    private static SelectableFile? KeeperOf(IReadOnlyList<SelectableFile> files) =>
+        files.FirstOrDefault(f => f.IsKeepRecommended)
+        ?? files.FirstOrDefault(f => f.HasHintLabel)
+        ?? files.FirstOrDefault();
+
+    private static void Set(IReadOnlyList<SelectableFile> files, Func<SelectableFile, bool> selected)
+    {
+        foreach (var file in files)
+        {
+            file.IsSelected = selected(file) && !file.IsOnNetworkDrive;
+        }
+    }
+}
+
 public sealed class ResultsViewModel
 {
     private readonly IRecycleBinService _recycleBinService;
@@ -397,10 +457,10 @@ public sealed class ResultsViewModel
 
     public ObservableCollection<DuplicateGroupViewModel> Groups { get; } = new();
 
-    // "Looks-alike photos" (new-screens 4k) - unlike Groups, not re-derived
-    // from a retained unfiltered source on every ApplyFilters() call: the
-    // Duplicates filter row (category/size/date/path/copies) has no visual
-    // presence in that section at all, so there's nothing to re-apply.
+    // "Looks-alike photos" (new-screens 4k). Unlike Groups these collections
+    // keep every file; the filters are applied when reading them, through
+    // VisibleGroupFiles / VisibleBlurryPhotos (1.3.1 - filters used to narrow
+    // Duplicates only, so Select all still ticked every hidden look-alike).
     public ObservableCollection<SimilarityGroupViewModel> SimilarityGroups { get; } = new();
 
     // "Blurry photos" review list (F9) - a flat set of likely-blurry images,
@@ -440,9 +500,32 @@ public sealed class ResultsViewModel
     // results so it only ever offers extensions that are actually present.
     public string? ExtensionFilter { get; set; }
 
-    // Distinct file extensions across the last-loaded results (lower-cased, with
-    // the leading dot, sorted), for the Extension dropdown to bind to.
-    public IReadOnlyList<string> AvailableExtensions { get; private set; } = Array.Empty<string>();
+    // Sections switched off in the sidebar's SHOW list (ResultSections keys).
+    // A hidden section is out of scope for Select all, the selected-size stat
+    // and Remove - what you see is exactly what those act on.
+    public HashSet<string> HiddenSections { get; } = new(StringComparer.Ordinal);
+
+    // Distinct file extensions across every section of the loaded results
+    // (lower-cased, with the leading dot, sorted), for the Extension dropdown.
+    // Only offers an extension the user can actually filter to a result: a
+    // group is hidden once fewer than 2 of its files match, so an extension
+    // counts only where SOME group holds 2+ files of it - e.g. a lone
+    // "photo.jpg.bak" paired with "photo.jpg" would otherwise list ".bak" but
+    // filtering to it shows nothing. Blurry photos aren't groups; any counts.
+    public IReadOnlyList<string> AvailableExtensions =>
+        _allGroups
+            .Concat(SimilarityGroups.Select(g => (IEnumerable<SelectableFile>)g.Files))
+            .Concat(VideoGroups.Select(g => (IEnumerable<SelectableFile>)g.Files))
+            .Concat(MusicGroups.Select(g => (IEnumerable<SelectableFile>)g.Files))
+            .SelectMany(g => g
+                .GroupBy(f => System.IO.Path.GetExtension(f.Path).ToLowerInvariant())
+                .Where(byExt => byExt.Count() >= 2)
+                .Select(byExt => byExt.Key))
+            .Concat(BlurryPhotos.Select(f => System.IO.Path.GetExtension(f.Path).ToLowerInvariant()))
+            .Where(ext => !string.IsNullOrEmpty(ext))
+            .Distinct()
+            .OrderBy(ext => ext, StringComparer.Ordinal)
+            .ToList();
 
     public ResultsViewModel() : this(new RecycleBinService(), null)
     {
@@ -465,20 +548,6 @@ public sealed class ResultsViewModel
                 LastWriteTimeUtc = f.LastWriteTimeUtc,
                 CreationTimeUtc = f.CreationTimeUtc,
             }).ToList())
-            .ToList();
-
-        // Only offer an extension the user can actually filter to a result. A
-        // group is pruned once it drops below 2 files (ApplyFilters), so an
-        // extension is only useful if SOME group holds 2+ files of it - e.g. a
-        // lone "photo.jpg.bak" paired with "photo.jpg" would otherwise list
-        // ".bak" but filtering to it prunes the group and shows nothing.
-        AvailableExtensions = _allGroups
-            .SelectMany(g => g
-                .GroupBy(f => System.IO.Path.GetExtension(f.Path).ToLowerInvariant())
-                .Where(byExt => !string.IsNullOrEmpty(byExt.Key) && byExt.Count() >= 2)
-                .Select(byExt => byExt.Key))
-            .Distinct()
-            .OrderBy(ext => ext, StringComparer.Ordinal)
             .ToList();
 
         ApplyFilters();
@@ -588,12 +657,18 @@ public sealed class ResultsViewModel
     // never selects a network-drive file (SendToRecycleBin refuses those).
     public void SelectAllButBestInSimilarityGroups()
     {
+        if (HiddenSections.Contains(ResultSections.Similar))
+        {
+            return;
+        }
+
         foreach (var group in SimilarityGroups)
         {
-            // Ignored files sit outside the keep-best decision entirely: they
-            // must be neither chosen as "best" (which would tick every visible
-            // file) nor selected for removal.
-            var files = group.Files.Where(f => !IgnoreService.IsIgnored(f.Path)).ToList();
+            // Only the files on screen: ignored and filtered-out files sit
+            // outside the keep-best decision entirely - they must be neither
+            // chosen as "best" (which would tick every visible file) nor
+            // selected for removal. A group a filter hides is left alone.
+            var files = VisibleGroupFiles(group.Files);
             if (files.Count < 2)
             {
                 continue;
@@ -648,6 +723,37 @@ public sealed class ResultsViewModel
                 Files = new ObservableCollection<SelectableFile>(visibleFiles),
             });
         }
+    }
+
+    /// <summary>
+    /// The files of a look-alike / video / song group that pass every active
+    /// filter (ignored files excluded) - or none when fewer than 2 (or fewer
+    /// than the Copies filter) remain, the same rule ApplyFilters uses for
+    /// duplicate groups. Stamps IsIgnored so rows show the right state.
+    /// </summary>
+    public IReadOnlyList<SelectableFile> VisibleGroupFiles(IEnumerable<SelectableFile> files)
+    {
+        var visible = files.Where(StampAndMatch).ToList();
+        if (visible.Count < 2 || (MinGroupSize is { } minGroupSize && visible.Count < minGroupSize))
+        {
+            return Array.Empty<SelectableFile>();
+        }
+
+        return visible;
+    }
+
+    /// <summary>
+    /// The blurry photos that pass every active filter. The list isn't a group
+    /// of copies, so a Copies filter hides it entirely - otherwise "Copies 3+"
+    /// then Select all would still tick every blurry photo.
+    /// </summary>
+    public IReadOnlyList<SelectableFile> VisibleBlurryPhotos() =>
+        MinGroupSize is null ? BlurryPhotos.Where(StampAndMatch).ToList() : Array.Empty<SelectableFile>();
+
+    private bool StampAndMatch(SelectableFile file)
+    {
+        file.IsIgnored = IgnoreService.IsIgnored(file.Path);
+        return MatchesFilters(file);
     }
 
     private bool MatchesFilters(SelectableFile file)
@@ -756,21 +862,27 @@ public sealed class ResultsViewModel
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-    // The single choke point for selection, stats and deletion. Ignored files
-    // are EXCLUDED here: unlike Groups (rebuilt ignore-filtered by
-    // ApplyFilters), the similarity/blurry/music/video collections are loaded
-    // once and never re-filtered, so without this check a hidden ignored file
-    // could be swept up by Select All / Invert and then DELETED - the one
-    // thing Ignore promises will never happen. Checked live against
-    // IgnoreService (an O(1) lookup) rather than the stamped IsIgnored flag so
-    // it can never act on a stale stamp.
-    private IEnumerable<SelectableFile> AllSelectableFiles() =>
-        Groups.SelectMany(g => g.Files)
-            .Concat(SimilarityGroups.SelectMany(g => g.Files))
-            .Concat(BlurryPhotos)
-            .Concat(MusicGroups.SelectMany(g => g.Files))
-            .Concat(VideoGroups.SelectMany(g => g.Files))
-            .Where(f => !IgnoreService.IsIgnored(f.Path));
+    // The single choke point for selection, stats and deletion: exactly the
+    // files on screen - every filter applied, SHOW-hidden sections left out,
+    // ignored files excluded. A file the user ticked and then filtered out of
+    // view stays ticked but is never removed. Ignored files are checked live
+    // against IgnoreService (an O(1) lookup) rather than the stamped IsIgnored
+    // flag so this can never act on a stale stamp: a hidden ignored file swept
+    // up by Select all / Invert and then DELETED is the one thing Ignore
+    // promises will never happen.
+    private IEnumerable<SelectableFile> AllSelectableFiles()
+    {
+        IEnumerable<SelectableFile> Section(string key, Func<IEnumerable<SelectableFile>> files) =>
+            HiddenSections.Contains(key) ? Enumerable.Empty<SelectableFile>() : files();
+
+        return Section(ResultSections.Duplicates, () => Groups.SelectMany(g => g.Files))
+            .Concat(Section(ResultSections.Similar, () => SimilarityGroups.SelectMany(g => VisibleGroupFiles(g.Files))))
+            .Concat(Section(ResultSections.Blurry, VisibleBlurryPhotos))
+            .Concat(Section(ResultSections.Music, () => MusicGroups.SelectMany(g => VisibleGroupFiles(g.Files))))
+            .Concat(Section(ResultSections.Video, () => VideoGroups.SelectMany(g => VisibleGroupFiles(g.Files))))
+            .Where(f => !IgnoreService.IsIgnored(f.Path))
+            .ToList();
+    }
 
     /// <summary>
     /// Clears the selection (and stale KEEP recommendation) of every file that
@@ -938,7 +1050,13 @@ public sealed class ResultsViewModel
         string targetLabel = "")
     {
         var failed = new List<string>();
-        var totalFiles = AllSelectableFiles().Count(f => f.IsSelected);
+
+        // Exactly the ticked files on screen. Captured once, up front: a file
+        // ticked and then hidden by a filter or the SHOW list keeps its tick
+        // but must never be removed - the loops below walk the raw
+        // collections, so they check membership here rather than IsSelected.
+        var inScope = new HashSet<SelectableFile>(AllSelectableFiles().Where(f => f.IsSelected), ReferenceEqualityComparer.Instance);
+        var totalFiles = inScope.Count;
         var processed = 0;
         var bytesRemoved = 0L;
 
@@ -958,7 +1076,7 @@ public sealed class ResultsViewModel
                     // !IsIgnored: last-line defense, same as every other section's
                     // loop below. Groups is rebuilt ignore-filtered by every
                     // ignore action today, but this loop must not depend on that.
-                    foreach (var file in group.Files.Where(f => f.IsSelected && !IgnoreService.IsIgnored(f.Path)).ToList())
+                    foreach (var file in group.Files.Where(f => inScope.Contains(f) && !IgnoreService.IsIgnored(f.Path)).ToList())
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
@@ -1062,7 +1180,7 @@ public sealed class ResultsViewModel
                     // be deleted even if a stale IsSelected survived (the same
                     // guard appears on every non-duplicates loop below; Groups
                     // itself is already rebuilt ignore-filtered).
-                    foreach (var file in group.Files.Where(f => f.IsSelected && !IgnoreService.IsIgnored(f.Path)).ToList())
+                    foreach (var file in group.Files.Where(f => inScope.Contains(f) && !IgnoreService.IsIgnored(f.Path)).ToList())
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
@@ -1123,7 +1241,7 @@ public sealed class ResultsViewModel
             // no group-prune step. A file already recycled via another section
             // this batch (a blurry photo that was also a duplicate/look-alike the
             // user ticked) is skipped, not re-deleted or counted as failed.
-            foreach (var file in BlurryPhotos.Where(f => f.IsSelected && !IgnoreService.IsIgnored(f.Path)).ToList())
+            foreach (var file in BlurryPhotos.Where(f => inScope.Contains(f) && !IgnoreService.IsIgnored(f.Path)).ToList())
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -1168,7 +1286,7 @@ public sealed class ResultsViewModel
             {
                 try
                 {
-                    foreach (var file in group.Files.Where(f => f.IsSelected && !IgnoreService.IsIgnored(f.Path)).ToList())
+                    foreach (var file in group.Files.Where(f => inScope.Contains(f) && !IgnoreService.IsIgnored(f.Path)).ToList())
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
@@ -1222,7 +1340,7 @@ public sealed class ResultsViewModel
             {
                 try
                 {
-                    foreach (var file in group.Files.Where(f => f.IsSelected && !IgnoreService.IsIgnored(f.Path)).ToList())
+                    foreach (var file in group.Files.Where(f => inScope.Contains(f) && !IgnoreService.IsIgnored(f.Path)).ToList())
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 

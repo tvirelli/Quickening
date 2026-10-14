@@ -370,4 +370,118 @@
         <Setter Property="BorderThickness" Value="0" />
     </Style>
 
+    <!--
+        Results-list checkbox (1.3.1). WinUI's stock box is 20px with a thin
+        border, and on a PC in Windows light mode it drew a dark border on our
+        dark rows - near invisible. This one is 22px with a clear light border,
+        a faint fill when empty, and solid accent + white mark when ticked (a
+        dash for "some", used by group headers). The 4px padding widens the hit
+        area without growing the box. Colours are fixed, not theme resources,
+        so the look never depends on the Windows theme.
+    -->
+    <Style x:Key="QkCheckBoxStyle" TargetType="CheckBox">
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Grid x:Name="RootGrid" Background="Transparent" Padding="4">
+                        <Border x:Name="Box" Width="22" Height="22" CornerRadius="6"
+                                BorderThickness="1.5" BorderBrush="#9AA4C4" Background="#14FFFFFF">
+                            <Grid>
+                                <FontIcon x:Name="CheckGlyph" Glyph="&#xE73E;" FontSize="13"
+                                          FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                                          Foreground="White" Opacity="0" />
+                                <Rectangle x:Name="DashGlyph" Width="10" Height="2" RadiusX="1" RadiusY="1"
+                                           Fill="White" Opacity="0" />
+                            </Grid>
+                        </Border>
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CombinedStates">
+                                <VisualState x:Name="UncheckedNormal" />
+                                <VisualState x:Name="UncheckedPointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="Box.BorderBrush" Value="#E8EDFF" />
+                                        <Setter Target="Box.Background" Value="#24FFFFFF" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="UncheckedPressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="Box.BorderBrush" Value="#7FADFF" />
+                                        <Setter Target="Box.Background" Value="#332E6BFF" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="UncheckedDisabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="Box.Opacity" Value="0.35" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="CheckedNormal">
+                                    <VisualState.Setters>
+                                        <Setter Target="Box.BorderBrush" Value="#2E6BFF" />
+                                        <Setter Target="Box.Background" Value="#2E6BFF" />
+                                        <Setter Target="CheckGlyph.Opacity" Value="1" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="CheckedPointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="Box.BorderBrush" Value="#7FADFF" />
+                                        <Setter Target="Box.Background" Value="#4D8DFF" />
+                                        <Setter Target="CheckGlyph.Opacity" Value="1" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="CheckedPressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="Box.BorderBrush" Value="#2557E0" />
+                                        <Setter Target="Box.Background" Value="#2557E0" />
+                                        <Setter Target="CheckGlyph.Opacity" Value="1" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="CheckedDisabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="Box.BorderBrush" Value="#2E6BFF" />
+                                        <Setter Target="Box.Background" Value="#2E6BFF" />
+                                        <Setter Target="CheckGlyph.Opacity" Value="1" />
+                                        <Setter Target="Box.Opacity" Value="0.35" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="IndeterminateNormal">
+                                    <VisualState.Setters>
+                                        <Setter Target="Box.BorderBrush" Value="#2E6BFF" />
+                                        <Setter Target="Box.Background" Value="#2E6BFF" />
+                                        <Setter Target="DashGlyph.Opacity" Value="1" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="IndeterminatePointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="Box.BorderBrush" Value="#7FADFF" />
+                                        <Setter Target="Box.Background" Value="#4D8DFF" />
+                                        <Setter Target="DashGlyph.Opacity" Value="1" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="IndeterminatePressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="Box.BorderBrush" Value="#2557E0" />
+                                        <Setter Target="Box.Background" Value="#2557E0" />
+                                        <Setter Target="DashGlyph.Opacity" Value="1" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="IndeterminateDisabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="Box.BorderBrush" Value="#2E6BFF" />
+                                        <Setter Target="Box.Background" Value="#2E6BFF" />
+                                        <Setter Target="DashGlyph.Opacity" Value="1" />
+                                        <Setter Target="Box.Opacity" Value="0.35" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
 </ResourceDictionary>

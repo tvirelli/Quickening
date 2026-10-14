@@ -961,7 +961,10 @@ public class ResultsViewModelTests
         try
         {
             var viewModel = new ResultsViewModel(new FakeRecycleBinService());
-            viewModel.LoadSimilarityGroups(new[] { MakeSimilarityGroup(90, ignored, @"C:\photos\other.jpg") });
+            // Three files: with the ignored one left out, two remain and the
+            // group stays visible (a group of one is hidden, and Select all
+            // only reaches what's visible).
+            viewModel.LoadSimilarityGroups(new[] { MakeSimilarityGroup(90, ignored, @"C:\photos\other.jpg", @"C:\photos\third.jpg") });
 
             viewModel.SelectAll();
 

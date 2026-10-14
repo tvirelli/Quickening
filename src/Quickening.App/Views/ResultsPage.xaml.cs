@@ -75,11 +75,70 @@ public sealed partial class ResultsPage : Page
     // live "does the current selection still match Recommended" tracker.
     private bool _recommendedApplied;
 
+    // A header row that carries a group checkbox (1.3.1): ticked when every
+    // file below it is, a dash when some are. Listens to its files' IsSelected
+    // so ticking rows by hand moves it; RebuildFlatRows detaches the previous
+    // rows' listeners so discarded rows aren't kept alive by the files.
+    private abstract class GroupCheckRow : System.ComponentModel.INotifyPropertyChanged
+    {
+        // The group's VISIBLE files - exactly what the checkbox acts on. Null
+        // for a sub-header that caps a flat list (blurry / ignored).
+        public IReadOnlyList<SelectableFile>? Files { get; init; }
+
+        public bool HasGroupCheckbox => Files is { Count: > 1 };
+
+        public bool? GroupState => Files is null ? false : GroupSelection.StateOf(Files);
+
+        // The header box's look per state - empty, tick (all), dash (some).
+        // Same colours as QkCheckBoxStyle.
+        private static readonly Brush EmptyFill = new SolidColorBrush(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF));
+        private static readonly Brush EmptyBorder = new SolidColorBrush(Color.FromArgb(0xFF, 0x9A, 0xA4, 0xC4));
+        private static readonly Brush AccentFill = new SolidColorBrush(Color.FromArgb(0xFF, 0x2E, 0x6B, 0xFF));
+
+        public Brush GroupBoxFill => GroupState == false ? EmptyFill : AccentFill;
+        public Brush GroupBoxBorder => GroupState == false ? EmptyBorder : AccentFill;
+        public bool ShowGroupTick => GroupState == true;
+        public bool ShowGroupDash => GroupState is null;
+
+        public abstract string GroupCheckLabel { get; }
+
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
+        public void Attach()
+        {
+            foreach (var file in Files ?? Array.Empty<SelectableFile>())
+            {
+                file.PropertyChanged += OnFileChanged;
+            }
+        }
+
+        public void Detach()
+        {
+            foreach (var file in Files ?? Array.Empty<SelectableFile>())
+            {
+                file.PropertyChanged -= OnFileChanged;
+            }
+        }
+
+        private void OnFileChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(SelectableFile.IsSelected))
+            {
+                foreach (var name in new[] { nameof(GroupState), nameof(GroupBoxFill), nameof(GroupBoxBorder), nameof(ShowGroupTick), nameof(ShowGroupDash) })
+                {
+                    PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(name));
+                }
+            }
+        }
+    }
+
     // A duplicate group's header row, flattened into the row list alongside its
     // own SelectableFile rows - see RebuildFlatRows's doc comment.
-    private sealed class GroupHeaderRow
+    private sealed class GroupHeaderRow : GroupCheckRow
     {
         public required DuplicateGroupViewModel Group { get; init; }
+
+        public override string GroupCheckLabel => $"Select group: {Group.GroupLabel}";
 
         // The owning section's left-edge rail colour (see SectionRow.RailBrush).
         public Brush? SectionRailBrush { get; init; }
@@ -157,9 +216,11 @@ public sealed partial class ResultsPage : Page
 
     // A sub-group header inside a section: a look-alike cluster, a song, or the
     // single card that caps a flat blurry/ignored list. Rounds the card's top.
-    private sealed class SubHeaderRow
+    private sealed class SubHeaderRow : GroupCheckRow
     {
         public required string Title { get; init; }
+
+        public override string GroupCheckLabel => $"Select group: {Title}";
         public string? Hint { get; init; }
         public Brush? HintFillBrush { get; init; }
         public Brush? HintBorderBrush { get; init; }
@@ -272,9 +333,18 @@ public sealed partial class ResultsPage : Page
     // thousands of files. Assigning a fresh List in one shot (rather than
     // mutating an ObservableCollection item-by-item) avoids a storm of
     // per-item CollectionChanged events on every rebuild.
+    // Header rows currently listening to their files - see GroupCheckRow.
+    private readonly List<GroupCheckRow> _checkRows = new();
+
     private void RebuildFlatRows()
     {
         EnsureSectionRows();
+        foreach (var row in _checkRows)
+        {
+            row.Detach();
+        }
+
+        _checkRows.Clear();
         var rows = new List<object>();
 
         foreach (var (key, _) in SectionDefs)
@@ -296,6 +366,11 @@ public sealed partial class ResultsPage : Page
             if (section.IsExpanded)
             {
                 rows.AddRange(children);
+                foreach (var row in children.OfType<GroupCheckRow>().Where(r => r.HasGroupCheckbox))
+                {
+                    row.Attach();
+                    _checkRows.Add(row);
+                }
             }
         }
 
@@ -323,7 +398,7 @@ public sealed partial class ResultsPage : Page
                 // by ApplyFilters.
                 foreach (var group in _viewModel.Groups)
                 {
-                    rows.Add(new GroupHeaderRow { Group = group, SectionRailBrush = rail });
+                    rows.Add(new GroupHeaderRow { Group = group, Files = group.Files, SectionRailBrush = rail });
                     foreach (var file in group.Files)
                     {
                         file.SectionRailBrush = rail;
@@ -344,8 +419,8 @@ public sealed partial class ResultsPage : Page
             case "music":
                 foreach (var group in _viewModel.MusicGroups)
                 {
-                    var visible = VisibleRows(group.Files);
-                    if (visible.Count < 2)
+                    var visible = _viewModel.VisibleGroupFiles(group.Files);
+                    if (visible.Count == 0)
                     {
                         continue;
                     }
@@ -359,6 +434,7 @@ public sealed partial class ResultsPage : Page
                         HintBorderBrush = Rgb(0x5EE7B7, 0x66),
                         HintTextBrush = Rgb(0x9CF0D0),
                         SectionRailBrush = rail,
+                        Files = visible,
                     });
                     rows.AddRange(visible);
                     fileCount += visible.Count;
@@ -366,7 +442,7 @@ public sealed partial class ResultsPage : Page
                 break;
 
             case "blurry":
-                fileCount += AppendFlatCard(rows, VisibleRows(_viewModel.BlurryPhotos), "Sharpness below your threshold", rail);
+                fileCount += AppendFlatCard(rows, _viewModel.VisibleBlurryPhotos(), "Sharpness below your threshold", rail);
                 break;
 
             case "ignored":
@@ -389,8 +465,8 @@ public sealed partial class ResultsPage : Page
         var count = 0;
         foreach (var group in groups)
         {
-            var visible = VisibleRows(group.Files);
-            if (visible.Count < 2)
+            var visible = _viewModel.VisibleGroupFiles(group.Files);
+            if (visible.Count == 0)
             {
                 continue;
             }
@@ -398,6 +474,7 @@ public sealed partial class ResultsPage : Page
             StampLastInGroup(visible, rail);
             rows.Add(new SubHeaderRow
             {
+                Files = visible,
                 Title = $"{System.IO.Path.GetFileName(visible[0].Path)} + {visible.Count - 1} more",
                 Hint = $"{group.MatchPercent}% match",
                 HintFillBrush = Rgb(hintBase, 0x24),
@@ -414,7 +491,7 @@ public sealed partial class ResultsPage : Page
 
     // A flat, header-less section (blurry / ignored): one capping sub-header,
     // then all its files as a single card.
-    private int AppendFlatCard(List<object> rows, List<SelectableFile> files, string subtitle, Brush rail)
+    private int AppendFlatCard(List<object> rows, IReadOnlyList<SelectableFile> files, string subtitle, Brush rail)
     {
         if (files.Count == 0)
         {
@@ -727,6 +804,7 @@ public sealed partial class ResultsPage : Page
         }
 
         SectionSidebar.ItemsSource = items;
+        SyncHiddenSections();
 
         // Hide the whole SHOW group when there's only one kind of result (just
         // duplicates) - a lone "Duplicates" toggle is noise.
@@ -760,7 +838,35 @@ public sealed partial class ResultsPage : Page
 
         // Every section lives in the one virtualized list - a single rebuild
         // adds/drops it. No per-kind branching, no element construction.
+        SyncHiddenSections();
         RebuildFlatRows();
+        RefreshSelectedSizeStat();
+    }
+
+    // A section switched off in SHOW is out of scope for Select all, the
+    // selected-size stat and Remove (ResultsViewModel.HiddenSections).
+    private void SyncHiddenSections()
+    {
+        _viewModel.HiddenSections.Clear();
+        foreach (var (key, _) in SectionDefs)
+        {
+            if (!_visibleSections.Contains(key))
+            {
+                _viewModel.HiddenSections.Add(key);
+            }
+        }
+    }
+
+    // Header checkbox: all / all but the copy to keep / none (GroupSelection).
+    // The CheckBox inside is display-only; this Button owns the click so the
+    // three-step cycle isn't fought by CheckBox's own toggling.
+    private void GroupCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: GroupCheckRow { Files: { } files } })
+        {
+            GroupSelection.Advance(files);
+            RefreshSelectedSizeStat();
+        }
     }
 
     // Fold/unfold a section from its bar. Rebuilds the flat list (data only, so
@@ -811,25 +917,6 @@ public sealed partial class ResultsPage : Page
         }
 
         return null;
-    }
-
-    // Stamps each file's IsIgnored and returns only the non-ignored ones -
-    // ignored files are surfaced in their own "Ignored" section, not inline.
-    // The returned list references the same SelectableFile instances, so
-    // selection/deletion still act on the originals.
-    private List<SelectableFile> VisibleRows(IEnumerable<SelectableFile> files)
-    {
-        var result = new List<SelectableFile>();
-        foreach (var file in files)
-        {
-            file.IsIgnored = IgnoreService.IsIgnored(file.Path);
-            if (!file.IsIgnored)
-            {
-                result.Add(file);
-            }
-        }
-
-        return result;
     }
 
     // Applying filters rebuilds every group view-model and the whole
@@ -921,6 +1008,8 @@ public sealed partial class ResultsPage : Page
         _viewModel.ExtensionFilter = (ExtensionCombo.SelectedItem as ComboBoxItem)?.Content as string;
 
         _viewModel.ApplyFilters();
+        // Filters now narrow every section, so the SHOW counts change too.
+        BuildSectionFilters();
         RefreshSummary();
         RefreshSelectedSizeStat();
     }
