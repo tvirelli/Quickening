@@ -226,6 +226,36 @@ public sealed partial class MainWindow : Window
         timer.Start();
     }
 
+    /// <summary>
+    /// Opens the "update ready" banner (1.3.2) - it stays until the user picks
+    /// Restart to update or closes it. Replaces the one-time "Updated to vX"
+    /// note if both would show at once (the newer news wins).
+    /// </summary>
+    public void ShowUpdateReady(string version)
+    {
+        UpdateNote.IsOpen = false;
+        UpdateReadyBar.Title = Updates.UpdatePrompt.BannerTitle(version);
+        UpdateReadyBar.Message = "Restart Quickening to install it. It only takes a few seconds.";
+        UpdateReadyBar.Severity = Microsoft.UI.Xaml.Controls.InfoBarSeverity.Informational;
+        UpdateReadyBar.IsOpen = true;
+    }
+
+    /// <summary>Re-opens the banner explaining why Restart to update has to wait.</summary>
+    public void ShowUpdateBlocked(string reason)
+    {
+        UpdateReadyBar.Message = reason;
+        UpdateReadyBar.Severity = Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning;
+        UpdateReadyBar.IsOpen = true;
+    }
+
+    private void RestartToUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        if (App.RestartToUpdate() is { } blocked)
+        {
+            ShowUpdateBlocked(blocked);
+        }
+    }
+
     // prefill is optional so every existing zero-argument call site (this
     // file's own launch-time ContentFrame.Loaded handler, ScanCompletePage's
     // "New scan", CelebrationPage's "Scan another folder", etc.) keeps

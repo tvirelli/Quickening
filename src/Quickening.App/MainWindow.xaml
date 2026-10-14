@@ -71,7 +71,32 @@
             </Button>
         </Grid>
 
-        <Frame x:Name="ContentFrame" Grid.Row="1" Background="Transparent" />
+        <Grid Grid.Row="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <!--
+                "Update ready" banner (1.3.2). Opened by ShowUpdateReady once a
+                newer build has downloaded, and stays until the user acts: Restart
+                to update, or ✕ to leave it (it then installs quietly on exit).
+                Its own row, not floated like UpdateNote: it can stay open for a
+                long time, so the page moves down rather than being covered.
+            -->
+            <InfoBar
+                x:Name="UpdateReadyBar"
+                Grid.Row="0"
+                Margin="20,8,20,4"
+                IsOpen="False"
+                IsClosable="True"
+                Severity="Informational"
+                Message="Restart Quickening to install it. It only takes a few seconds.">
+                <InfoBar.ActionButton>
+                    <Button x:Name="RestartToUpdateButton" Content="Restart to update" Click="RestartToUpdate_Click" />
+                </InfoBar.ActionButton>
+            </InfoBar>
+            <Frame x:Name="ContentFrame" Grid.Row="1" Background="Transparent" />
+        </Grid>
 
         <!--
             One-time post-update note ("Updated to vX"), floated over the top
@@ -86,5 +111,6 @@
             Margin="20,12,20,0"
             IsOpen="False"
             Severity="Success" />
+
     </Grid>
 </Window>

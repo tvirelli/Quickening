@@ -183,7 +183,7 @@ public sealed class TrayIconService : IDisposable
         parent.Items.Add(item);
     }
 
-    private static void OpenQuickening()
+    internal static void OpenQuickening()
     {
         var window = App.MainWindowInstance!;
         WindowExtensions.Show(window);

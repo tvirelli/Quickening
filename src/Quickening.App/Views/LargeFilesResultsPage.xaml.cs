@@ -737,6 +737,7 @@ public sealed partial class LargeFilesResultsPage : Page
             RingHue: ProgressRingHue.Success,
             Operation: async (progress, cancellationToken) =>
             {
+                using var removing = RemovalActivity.Begin();
                 var failed = await _viewModel.DeleteSelectedAsync(
                     new Progress<DeleteProgress>(p =>
                         progress.Report(new ProgressUpdate(p.Processed, p.Total, p.Path))),

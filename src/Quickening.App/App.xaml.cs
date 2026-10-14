@@ -84,11 +84,60 @@ public partial class App : Application
     public static Tray.NotificationDispatcher<Microsoft.Windows.AppNotifications.AppNotificationActivatedEventArgs> Notifications { get; } = new();
 
     /// <summary>
-    /// App-lifetime Velopack update service - checks GitHub Releases on launch,
-    /// stages any newer build, applies it on exit. Also exposed so Settings'
+    /// App-lifetime Velopack update service - checks GitHub Releases on launch
+    /// and every few hours, stages any newer build, and offers Restart to
+    /// update (or applies it quietly on exit). Also exposed so Settings'
     /// "Check for updates" button and version display can reach it.
     /// </summary>
     public static Updates.UpdateService? Updater { get; private set; }
+
+    // How often a running app rechecks for updates - people who keep
+    // Quickening in the tray can go days without relaunching it.
+    private static readonly TimeSpan UpdateRecheckInterval = TimeSpan.FromHours(6);
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _updateTimer;
+
+    // The version the "update ready" Windows notification was last shown for,
+    // so a later recheck of the same release doesn't notify again.
+    private static string? _notifiedUpdateVersion;
+
+    /// <summary>
+    /// Restart to update (banner, Settings, or the notification's button).
+    /// Returns why it has to wait - a scan or a removal is running - or null
+    /// after handing off to Velopack, which exits this process, installs, and
+    /// relaunches. Shuts the app's services down first, as a normal close does.
+    /// </summary>
+    public static string? RestartToUpdate()
+    {
+        if (Updates.UpdatePrompt.RestartBlockedReason(ScanCoordinator.IsScanActive, RemovalActivity.IsActive) is { } reason)
+        {
+            return reason;
+        }
+
+        try
+        {
+            IsQuitting = true;
+            ScheduledScan?.Dispose();
+            Watcher?.Dispose();
+            Tray?.Dispose();
+            Store?.Dispose();
+            try
+            {
+                Microsoft.Windows.AppNotifications.AppNotificationManager.Default.Unregister();
+            }
+            catch (Exception ex)
+            {
+                Logger?.LogError($"AppNotificationManager unregister failed: {ex}");
+            }
+
+            Updater?.RestartToApply();
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogError("Restart to update failed", ex);
+            return "Couldn't restart to update. It will install next time you close Quickening.";
+        }
+    }
 
     /// <summary>
     /// Set just before deliberately quitting (the tray menu's "Quit
@@ -167,7 +216,6 @@ public partial class App : Application
         var updateNote = Updates.UpdateNotice.Evaluate(Settings.LastSeenVersion, Updater.CurrentVersion);
         Settings.LastSeenVersion = Updater.CurrentVersion;
         SaveSettings();
-        _ = Updater.CheckAndStageAsync();
 
         // Registered once, app-wide, regardless of either Automation
         // toggle - Watcher's own duplicate-found toast and ScheduledScan's
@@ -220,6 +268,8 @@ public partial class App : Application
             mainWindow.ShowUpdateNote(updateNote);
         }
 
+        StartUpdateChecks();
+
         // Only actually starts anything if the user had already turned
         // watching on in a previous session - Start() itself is what makes
         // the icon appear/watcher run, this call just restores that state
@@ -233,5 +283,90 @@ public partial class App : Application
         // Independent of the Watch toggle - a user can enable scheduled
         // scans without ever turning on the tray watcher.
         ScheduledScan.Start();
+    }
+
+    // Update checks start only once the window exists, so a fast check can't
+    // finish with nowhere to show the "ready to install" banner. Checks now,
+    // then every UpdateRecheckInterval until something is staged.
+    private void StartUpdateChecks()
+    {
+        if (Updater is null || _window is null)
+        {
+            return;
+        }
+
+        var dispatcher = _window.DispatcherQueue;
+        Updater.UpdateReady += version => dispatcher.TryEnqueue(() => OnUpdateReady(version));
+        Notifications.Subscribe(OnUpdateNotificationInvoked);
+
+        _ = Updater.CheckAndStageAsync();
+
+        _updateTimer = dispatcher.CreateTimer();
+        _updateTimer.Interval = UpdateRecheckInterval;
+        _updateTimer.IsRepeating = true;
+        _updateTimer.Tick += (_, _) =>
+        {
+            if (Updater.StagedVersion is null)
+            {
+                _ = Updater.CheckAndStageAsync();
+            }
+        };
+        _updateTimer.Start();
+    }
+
+    // UI thread. The banner always; the Windows notification only when the
+    // window is hidden in the tray (UpdatePrompt.ShouldNotify).
+    private void OnUpdateReady(string version)
+    {
+        if (_window is not MainWindow mainWindow)
+        {
+            return;
+        }
+
+        mainWindow.ShowUpdateReady(version);
+
+        if (!Updates.UpdatePrompt.ShouldNotify(mainWindow.AppWindow.IsVisible, version, _notifiedUpdateVersion))
+        {
+            return;
+        }
+
+        _notifiedUpdateVersion = version;
+        try
+        {
+            var toast = new Microsoft.Windows.AppNotifications.Builder.AppNotificationBuilder()
+                .AddArgument("action", "showUpdate")
+                .AddText(Updates.UpdatePrompt.BannerTitle(version))
+                .AddText("Restart Quickening to install it. It only takes a few seconds.")
+                .AddButton(new Microsoft.Windows.AppNotifications.Builder.AppNotificationButton("Restart to update")
+                    .AddArgument("action", "restartToUpdate"))
+                .BuildNotification();
+            Microsoft.Windows.AppNotifications.AppNotificationManager.Default.Show(toast);
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogError($"Failed to show update-ready toast: {ex}");
+        }
+    }
+
+    // Toast clicks arrive off the UI thread. "Restart to update" restarts
+    // straight away unless a scan/removal is running - then, like a click on
+    // the toast itself, it brings the window up so the banner explains why.
+    private void OnUpdateNotificationInvoked(Microsoft.Windows.AppNotifications.AppNotificationActivatedEventArgs args)
+    {
+        if (!args.Arguments.TryGetValue("action", out var action) || (action != "restartToUpdate" && action != "showUpdate"))
+        {
+            return;
+        }
+
+        _window?.DispatcherQueue.TryEnqueue(() =>
+        {
+            var blocked = action == "restartToUpdate" ? RestartToUpdate() : null;
+            global::Quickening.App.Tray.TrayIconService.OpenQuickening();
+            _window.Activate();
+            if (blocked is not null && _window is MainWindow mainWindow)
+            {
+                mainWindow.ShowUpdateBlocked(blocked);
+            }
+        });
     }
 }
