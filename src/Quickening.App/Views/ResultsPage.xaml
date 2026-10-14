@@ -226,6 +226,20 @@
         <SolidColorBrush x:Key="ComboBoxDropDownForeground" Color="#C6CEE8" />
         <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#22FFFFFF" />
         <SolidColorBrush x:Key="ComboBoxDropDownGlyphForeground" Color="#9AA4C4" />
+        <!-- The open list's items. Left to WinUI they took the Windows theme, so
+             in light mode they drew dark text on this dark list (1.3.1). -->
+        <SolidColorBrush x:Key="ComboBoxItemForeground" Color="#C6CEE8" />
+        <SolidColorBrush x:Key="ComboBoxItemForegroundPointerOver" Color="#F2F5FF" />
+        <SolidColorBrush x:Key="ComboBoxItemForegroundPressed" Color="#F2F5FF" />
+        <SolidColorBrush x:Key="ComboBoxItemForegroundSelected" Color="#F2F5FF" />
+        <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedPointerOver" Color="#F2F5FF" />
+        <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedPressed" Color="#F2F5FF" />
+        <SolidColorBrush x:Key="ComboBoxItemBackgroundPointerOver" Color="#1AFFFFFF" />
+        <SolidColorBrush x:Key="ComboBoxItemBackgroundPressed" Color="#24FFFFFF" />
+        <SolidColorBrush x:Key="ComboBoxItemBackgroundSelected" Color="#402E6BFF" />
+        <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPointerOver" Color="#552E6BFF" />
+        <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPressed" Color="#662E6BFF" />
+        <SolidColorBrush x:Key="ComboBoxItemPillFillBrush" Color="#7FADFF" />
 
         <!-- Uppercase section heading inside the filter rail (8c). -->
         <Style x:Key="FilterSectionLabelStyle" TargetType="TextBlock">
@@ -279,21 +293,47 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <Ellipse Grid.Column="0" Width="9" Height="9"
+                        <!-- Group checkbox: all / all but KEEP / none (1.3.1). -->
+                        <Button Grid.Column="0" Padding="0" MinWidth="0" MinHeight="0" BorderThickness="0"
+                                Background="Transparent" CornerRadius="8" VerticalAlignment="Center"
+                                Click="GroupCheckBox_Click"
+                                AutomationProperties.Name="{Binding GroupCheckLabel}">
+                            <Button.Resources>
+                                <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#14FFFFFF" />
+                                <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#24FFFFFF" />
+                                <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
+                                <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="Transparent" />
+                            </Button.Resources>
+                            <!-- Drawn here rather than a CheckBox: a bound null never
+                                 reached CheckBox as "indeterminate" (it showed empty), and
+                                 the dash is the point. Same look as QkCheckBoxStyle. -->
+                            <Border Margin="4" Width="22" Height="22" CornerRadius="6" BorderThickness="1.5"
+                                    Background="{Binding GroupBoxFill}" BorderBrush="{Binding GroupBoxBorder}">
+                                <Grid>
+                                    <FontIcon Glyph="&#xE73E;" FontSize="13" Foreground="White"
+                                              FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                                              Visibility="{Binding ShowGroupTick, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                    <Rectangle Width="10" Height="2" RadiusX="1" RadiusY="1" Fill="White"
+                                               Visibility="{Binding ShowGroupDash, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                </Grid>
+                            </Border>
+                        </Button>
+                        <Ellipse Grid.Column="1" Width="9" Height="9"
                                  Fill="{Binding Group.Files, Converter={StaticResource GroupSwatchBrushConverter}}"
                                  VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="1"
+                        <TextBlock Grid.Column="2"
                                    Text="{Binding Group.Files, Converter={StaticResource GroupRepresentativeFileNameConverter}}"
                                    FontFamily="{StaticResource BodyFontFamily}" FontSize="14" FontWeight="Bold"
                                    Foreground="{StaticResource TextBodyBrush}" VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="2"
+                        <TextBlock Grid.Column="3"
                                    Text="{Binding Group.Files, Converter={StaticResource GroupCopiesLabelConverter}}"
                                    FontFamily="{StaticResource BodyFontFamily}" FontSize="12.5"
                                    Foreground="{StaticResource TextFaintBrush}" VerticalAlignment="Center" />
-                        <Border Grid.Column="3" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="6,0,0,0"
+                        <Border Grid.Column="4" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="6,0,0,0"
                                 controls:PillCornerRadius.Enabled="True"
                                 Visibility="{Binding Group.IsLikelyCreatedTogether, Converter={StaticResource BoolToVisibilityConverter}}"
                                 Background="{StaticResource WarningFillBrush}" BorderBrush="{StaticResource WarningFillBorderBrush}"
@@ -302,7 +342,7 @@
                                        FontFamily="{StaticResource BodyFontFamily}" FontSize="{StaticResource FontSizeMicroPill}" FontWeight="ExtraBold"
                                        Foreground="{StaticResource WarningBrush}" />
                         </Border>
-                        <TextBlock Grid.Column="4"
+                        <TextBlock Grid.Column="5"
                                    Text="{Binding Group.Files, Converter={StaticResource GroupFreesLabelConverter}}"
                                    FontFamily="{StaticResource BodyFontFamily}" FontSize="12.5" FontWeight="Bold"
                                    Foreground="{StaticResource SuccessBrush}" VerticalAlignment="Center" />
@@ -354,7 +394,7 @@
 
                     <Grid ColumnSpacing="14" Opacity="{Binding IsIgnored, Converter={StaticResource IgnoredRowOpacityConverter}}">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="20" />
+                            <ColumnDefinition Width="30" />
                             <ColumnDefinition Width="44" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
@@ -366,8 +406,7 @@
                              Ignored section reuses this template) must not offer a
                              live-looking checkbox when selection/deletion exclude
                              them. -->
-                        <CheckBox Grid.Column="0" Width="20" Height="20" Padding="0"
-                                  MinWidth="0" MinHeight="0"
+                        <CheckBox Grid.Column="0" Style="{StaticResource QkCheckBoxStyle}"
                                   IsChecked="{Binding IsSelected, Mode=TwoWay}"
                                   AutomationProperties.Name="{Binding Path, Converter={StaticResource FileNameFromPathConverter}}"
                                   IsEnabled="{Binding IsSelectable}"
@@ -555,14 +594,40 @@
                     <Grid ColumnSpacing="10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="{Binding Title}"
+                        <Button Grid.Column="0" Margin="0,0,4,0" Padding="0" MinWidth="0" MinHeight="0" BorderThickness="0"
+                                Background="Transparent" CornerRadius="8" VerticalAlignment="Center"
+                                Click="GroupCheckBox_Click"
+                                AutomationProperties.Name="{Binding GroupCheckLabel}"
+                                Visibility="{Binding HasGroupCheckbox, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <Button.Resources>
+                                <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#14FFFFFF" />
+                                <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#24FFFFFF" />
+                                <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
+                                <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="Transparent" />
+                            </Button.Resources>
+                            <!-- Drawn here rather than a CheckBox: a bound null never
+                                 reached CheckBox as "indeterminate" (it showed empty), and
+                                 the dash is the point. Same look as QkCheckBoxStyle. -->
+                            <Border Margin="4" Width="22" Height="22" CornerRadius="6" BorderThickness="1.5"
+                                    Background="{Binding GroupBoxFill}" BorderBrush="{Binding GroupBoxBorder}">
+                                <Grid>
+                                    <FontIcon Glyph="&#xE73E;" FontSize="13" Foreground="White"
+                                              FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                                              Visibility="{Binding ShowGroupTick, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                    <Rectangle Width="10" Height="2" RadiusX="1" RadiusY="1" Fill="White"
+                                               Visibility="{Binding ShowGroupDash, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                </Grid>
+                            </Border>
+                        </Button>
+                        <TextBlock Grid.Column="1" Text="{Binding Title}"
                                    FontFamily="{StaticResource BodyFontFamily}" FontSize="14" FontWeight="Bold"
                                    Foreground="{StaticResource TextBodyBrush}" VerticalAlignment="Center"
                                    TextTrimming="CharacterEllipsis" />
-                        <Border Grid.Column="2" Padding="9,2" controls:PillCornerRadius.Enabled="True"
+                        <Border Grid.Column="3" Padding="9,2" controls:PillCornerRadius.Enabled="True"
                                 Background="{Binding HintFillBrush}" BorderBrush="{Binding HintBorderBrush}"
                                 BorderThickness="1" VerticalAlignment="Center"
                                 Visibility="{Binding HasHint, Converter={StaticResource BoolToVisibilityConverter}}">

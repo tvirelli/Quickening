@@ -6,6 +6,24 @@ automatically, so you're normally on the latest version already.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and
 Quickening follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.1] - 2026-10-14
+
+### Changed
+- Filters (category, size, modified, path, extension, copies) apply to every
+  results section, not only Duplicates; a group left with fewer than 2
+  matching files is hidden. The Copies filter hides the Blurry list (not a
+  group). The Extension list covers every section.
+- Select All, Invert, By folder, Keep best, the selected-size stat and Remove
+  act only on visible files: files hidden by a filter or a SHOW-hidden
+  section keep their tick but are never removed.
+- Group header checkbox on duplicate, similar-photo, similar-video and song
+  groups: all, then all but the KEEP / best copy, then none.
+- Larger 22px checkboxes with fixed colours.
+
+### Fixed
+- The app now always uses its dark theme; under Windows light mode, stock
+  controls (checkboxes, dropdown lists) drew dark-on-dark.
+
 ## [1.3.0] - 2026-10-06
 
 ### Added
