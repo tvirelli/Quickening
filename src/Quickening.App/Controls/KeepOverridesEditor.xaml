@@ -1,0 +1,72 @@
+<UserControl
+    x:Class="Quickening.App.Controls.KeepOverridesEditor"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Quickening.App.Controls">
+    <!--
+        Settings' Keep overrides list. A ListView rather than the plain
+        StackPanel the other folder lists use, for its built-in drag reorder
+        (CanReorderItems). Rows are plain data (KeepOverrideFolder) shown
+        through a template, so a reorder only moves data - the ListView owns
+        its containers.
+    -->
+    <StackPanel Spacing="8">
+        <TextBlock x:Name="EmptyText" Text="No keep overrides yet — your normal rule above decides every group."
+                   FontFamily="{StaticResource BodyFontFamily}" FontSize="12.5" TextWrapping="Wrap"
+                   Foreground="{StaticResource TextFaintBrush}" />
+
+        <ListView x:Name="FolderList" SelectionMode="None" CanReorderItems="True" CanDragItems="True" AllowDrop="True"
+                  AutomationProperties.Name="Keep override folders, highest priority first">
+            <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem">
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="Margin" Value="0,0,0,8" />
+                    <Setter Property="MinHeight" Value="0" />
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                </Style>
+            </ListView.ItemContainerStyle>
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="local:KeepOverrideFolder">
+                    <Border Padding="12,9,8,9" CornerRadius="12" BorderThickness="1"
+                            Background="{StaticResource SurfaceCardBrush}" BorderBrush="{StaticResource SurfaceCardBorderBrush}">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <!-- Drag handle: the whole row drags, this just shows it can. -->
+                            <FontIcon Glyph="&#xE76F;" FontSize="14" Foreground="{StaticResource TextFaintBrush}"
+                                      VerticalAlignment="Center" ToolTipService.ToolTip="Drag to change priority" />
+                            <Border Grid.Column="1" Width="22" Height="22" CornerRadius="11" VerticalAlignment="Center"
+                                    Background="{StaticResource AccentSelectedFillBrush}">
+                                <TextBlock Text="{x:Bind Rank, Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           FontFamily="{StaticResource DisplayFontFamily}" FontSize="11.5" FontWeight="Bold"
+                                           Foreground="{StaticResource AccentLighterBrush}" />
+                            </Border>
+                            <!-- Name on top: a long path trimmed at the end would hide exactly the part that matters. -->
+                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="1" ToolTipService.ToolTip="{x:Bind Path}">
+                                <TextBlock Text="{x:Bind Name}" FontFamily="{StaticResource BodyFontFamily}" FontSize="13.5"
+                                           FontWeight="SemiBold" Foreground="{StaticResource TextHeadingBrush}"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{x:Bind Path}" FontFamily="{StaticResource MonoFontFamily}" FontSize="11.5"
+                                           Foreground="{StaticResource TextFaintBrush}" TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <Button Grid.Column="3" Content="&#x2715;" Tag="{x:Bind Path}" Click="Remove_Click"
+                                    Padding="10,4" BorderThickness="0" Background="Transparent" FontSize="12"
+                                    Foreground="{StaticResource TextFaintBrush}"
+                                    AutomationProperties.Name="{x:Bind RemoveLabel}" />
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+
+        <Button x:Name="AddButton" Content="+ Add a folder…" Click="Add_Click"
+                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Padding="0,11"
+                FontFamily="{StaticResource BodyFontFamily}" FontSize="13" FontWeight="SemiBold"
+                Background="Transparent" BorderBrush="{StaticResource SurfaceCardBorderBrush}" BorderThickness="1.5"
+                Foreground="{StaticResource TextMutedBrush}" CornerRadius="12" />
+    </StackPanel>
+</UserControl>

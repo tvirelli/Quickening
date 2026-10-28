@@ -137,6 +137,7 @@ internal static class SettingsDialog
         var groups = new StackPanel { Spacing = 14 };
         groups.Children.Add(BuildScanningGroup(resources, dialog));
         groups.Children.Add(BuildDuplicatesGroup(resources));
+        groups.Children.Add(BuildKeepOverridesGroup(resources));
         groups.Children.Add(BuildIgnoreListGroup(resources, dialog));
         groups.Children.Add(BuildTrustedFoldersGroup(resources));
         groups.Children.Add(BuildAutomationGroup(resources));
@@ -420,6 +421,27 @@ internal static class SettingsDialog
         content.Children.Add(pillBorder);
 
         return BuildGroupCard(resources, "Duplicates", content);
+    }
+
+    // ===== Keep overrides group =====
+
+    private static UIElement BuildKeepOverridesGroup(ResourceDictionary resources)
+    {
+        var intro = new TextBlock
+        {
+            Text = "When a duplicate group has a copy inside one of these folders (or their subfolders), that copy "
+                + "is kept. Higher in the list wins - drag to reorder. If no copy is in any of them, the rule above decides.",
+            FontFamily = (FontFamily)resources["BodyFontFamily"],
+            FontSize = 12.5,
+            Foreground = (Brush)resources["TextMutedBrush"],
+            TextWrapping = TextWrapping.Wrap,
+        };
+
+        var content = new StackPanel { Spacing = 14 };
+        content.Children.Add(intro);
+        content.Children.Add(new Controls.KeepOverridesEditor());
+
+        return BuildGroupCard(resources, "Keep overrides", content);
     }
 
     // ===== Trusted folders group =====
@@ -1153,7 +1175,8 @@ internal static class SettingsDialog
         return container;
     }
 
-    private static async Task<string?> PickFolderAsync()
+    // Also used by Controls.KeepOverridesEditor.
+    internal static async Task<string?> PickFolderAsync()
     {
         var windowHandle = WindowNative.GetWindowHandle(App.MainWindowInstance);
         var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(windowHandle);

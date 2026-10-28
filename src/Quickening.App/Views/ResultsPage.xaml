@@ -991,9 +991,21 @@
                                        Foreground="{StaticResource AccentLighterBrush}" />
                         </Border>
                     </StackPanel>
-                    <TextBlock x:Name="ResultCountText" HorizontalAlignment="Right" VerticalAlignment="Center"
-                               FontFamily="{StaticResource BodyFontFamily}" FontSize="12"
-                               Foreground="{StaticResource TextFaintBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <!-- Sort dropdown: groups ranked by their largest file. Content/IsChecked set in UpdateSortButton. -->
+                        <Button x:Name="SortButton" Content="Sort: Scan order &#x25BE;" Style="{StaticResource BulkChipButtonStyle}">
+                            <Button.Flyout>
+                                <MenuFlyout x:Name="SortMenu" Placement="BottomEdgeAlignedRight">
+                                    <RadioMenuFlyoutItem Text="Largest first" Tag="LargestFirst" GroupName="ResultsSort" Click="SortOption_Click" />
+                                    <RadioMenuFlyoutItem Text="Smallest first" Tag="SmallestFirst" GroupName="ResultsSort" Click="SortOption_Click" />
+                                    <RadioMenuFlyoutItem Text="Scan order" Tag="ScanOrder" GroupName="ResultsSort" Click="SortOption_Click" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                        <TextBlock x:Name="ResultCountText" VerticalAlignment="Center"
+                                   FontFamily="{StaticResource BodyFontFamily}" FontSize="12"
+                                   Foreground="{StaticResource TextFaintBrush}" />
+                    </StackPanel>
                 </Grid>
 
         <!--

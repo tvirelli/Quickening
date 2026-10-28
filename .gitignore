@@ -83,3 +83,5 @@ artifacts/
 
 # ---- Test run output ----
 TestResults/
+
+.superpowers/

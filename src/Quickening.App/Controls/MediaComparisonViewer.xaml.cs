@@ -277,8 +277,8 @@ public sealed partial class MediaComparisonViewer : UserControl
     {
         try
         {
-            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
-            using var stream = await file.OpenReadAsync();
+            // StorageFile calls stay off the UI thread - see OpenReadOffUiThreadAsync.
+            using var stream = await OpenReadOffUiThreadAsync(path);
             var result = await svg.SetSourceAsync(stream);
             if (result != Microsoft.UI.Xaml.Media.Imaging.SvgImageSourceLoadStatus.Success)
             {
@@ -310,43 +310,63 @@ public sealed partial class MediaComparisonViewer : UserControl
         _ = ApplyAdaptiveImageBackgroundAsync(mediaHost, path);
     }
 
+    // StorageFile.GetFileFromPathAsync makes a blocking cross-apartment COM call
+    // before returning its task, and COM pumps window messages while it waits.
+    // On the UI thread that pump can re-enter XAML mid-callback, which XAML
+    // answers with a fail-fast (0x8000ffff, c000027b) that bypasses
+    // UnhandledException entirely - the 1.3.2 crash seen from the results
+    // list's video thumbnails. Every StorageFile call here therefore runs on the
+    // thread pool and hands back only agile results (streams, plain data).
+    private static System.Threading.Tasks.Task<Windows.Storage.Streams.IRandomAccessStreamWithContentType> OpenReadOffUiThreadAsync(string path) =>
+        System.Threading.Tasks.Task.Run(async () =>
+        {
+            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
+            return await file.OpenReadAsync();
+        });
+
     private static async System.Threading.Tasks.Task ApplyAdaptiveImageBackgroundAsync(Border mediaHost, string path)
     {
         try
         {
-            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
-            using var stream = await file.OpenReadAsync();
-            var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(stream);
-            // Sample a tiny 24x24 version - enough to judge overall lightness,
-            // negligible to decode.
-            var transform = new Windows.Graphics.Imaging.BitmapTransform { ScaledWidth = 24, ScaledHeight = 24 };
-            var pixels = await decoder.GetPixelDataAsync(
-                Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
-                Windows.Graphics.Imaging.BitmapAlphaMode.Straight,
-                transform,
-                Windows.Graphics.Imaging.ExifOrientationMode.IgnoreExifOrientation,
-                Windows.Graphics.Imaging.ColorManagementMode.DoNotColorManage);
-            var data = pixels.DetachPixelData();
-
-            double lumSum = 0, alphaSum = 0;
-            for (var i = 0; i + 3 < data.Length; i += 4)
-            {
-                double b = data[i], g = data[i + 1], r = data[i + 2];
-                var a = data[i + 3] / 255.0;
-                lumSum += (0.2126 * r + 0.7152 * g + 0.0722 * b) * a;
-                alphaSum += a;
-            }
-
-            // Near-fully-transparent images read as "dark content" -> light
-            // backing so the visible strokes show. Otherwise use the alpha-
-            // weighted mean luminance (0-255).
-            var avgLuminance = alphaSum > 0.5 ? lumSum / alphaSum : 0;
+            var avgLuminance = await System.Threading.Tasks.Task.Run(() => SampleAverageLuminanceAsync(path));
             mediaHost.Background = avgLuminance < 128 ? LightImageBacking : DarkImageBacking;
         }
         catch (Exception ex)
         {
             App.Logger?.LogError($"Adaptive image background failed for '{path}': {ex}");
         }
+    }
+
+    // Runs on the thread pool (see OpenReadOffUiThreadAsync); touches no XAML.
+    private static async System.Threading.Tasks.Task<double> SampleAverageLuminanceAsync(string path)
+    {
+        var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
+        using var stream = await file.OpenReadAsync();
+        var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(stream);
+        // Sample a tiny 24x24 version - enough to judge overall lightness,
+        // negligible to decode.
+        var transform = new Windows.Graphics.Imaging.BitmapTransform { ScaledWidth = 24, ScaledHeight = 24 };
+        var pixels = await decoder.GetPixelDataAsync(
+            Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
+            Windows.Graphics.Imaging.BitmapAlphaMode.Straight,
+            transform,
+            Windows.Graphics.Imaging.ExifOrientationMode.IgnoreExifOrientation,
+            Windows.Graphics.Imaging.ColorManagementMode.DoNotColorManage);
+        var data = pixels.DetachPixelData();
+
+        double lumSum = 0, alphaSum = 0;
+        for (var i = 0; i + 3 < data.Length; i += 4)
+        {
+            double b = data[i], g = data[i + 1], r = data[i + 2];
+            var a = data[i + 3] / 255.0;
+            lumSum += (0.2126 * r + 0.7152 * g + 0.0722 * b) * a;
+            alphaSum += a;
+        }
+
+        // Near-fully-transparent images read as "dark content" -> light
+        // backing so the visible strokes show. Otherwise use the alpha-
+        // weighted mean luminance (0-255).
+        return alphaSum > 0.5 ? lumSum / alphaSum : 0;
     }
 
     // Cap in-viewer text loads so a giant log can't hang the UI.
@@ -595,15 +615,27 @@ public sealed partial class MediaComparisonViewer : UserControl
     {
         try
         {
-            var storageFile = await Windows.Storage.StorageFile.GetFileFromPathAsync(file.Path);
-            var pdf = await Windows.Data.Pdf.PdfDocument.LoadFromFileAsync(storageFile);
-            var stack = new StackPanel { Spacing = 8 };
-            for (uint i = 0; i < pdf.PageCount; i++)
+            // File access and page rendering run on the thread pool (see
+            // OpenReadOffUiThreadAsync); only the rendered page streams come back.
+            var pageStreams = await System.Threading.Tasks.Task.Run(async () =>
             {
-                using var page = pdf.GetPage(i);
-                var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
-                await page.RenderToStreamAsync(stream);
-                stream.Seek(0);
+                var storageFile = await Windows.Storage.StorageFile.GetFileFromPathAsync(file.Path);
+                var pdf = await Windows.Data.Pdf.PdfDocument.LoadFromFileAsync(storageFile);
+                var rendered = new List<Windows.Storage.Streams.InMemoryRandomAccessStream>();
+                for (uint i = 0; i < pdf.PageCount; i++)
+                {
+                    using var page = pdf.GetPage(i);
+                    var pageStream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+                    await page.RenderToStreamAsync(pageStream);
+                    pageStream.Seek(0);
+                    rendered.Add(pageStream);
+                }
+                return rendered;
+            });
+
+            var stack = new StackPanel { Spacing = 8 };
+            foreach (var stream in pageStreams)
+            {
                 var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
                 await bmp.SetSourceAsync(stream);
                 stack.Children.Add(new Image
@@ -1146,36 +1178,11 @@ public sealed partial class MediaComparisonViewer : UserControl
         {
             try
             {
-                var source = await Windows.Storage.StorageFile.GetFileFromPathAsync(_path);
-                var music = await source.Properties.GetMusicPropertiesAsync();
-                if (music.Duration > TimeSpan.FromMinutes(20))
-                {
-                    return; // decoding a very long track to PCM in memory isn't worth it
-                }
-
-                var transcoder = new Windows.Media.Transcoding.MediaTranscoder();
-                var profile = Windows.Media.MediaProperties.MediaEncodingProfile.CreateWav(
-                    Windows.Media.MediaProperties.AudioEncodingQuality.Low);
-                using var srcStream = await source.OpenReadAsync();
-                using var dest = new Windows.Storage.Streams.InMemoryRandomAccessStream();
-
-                var prep = await transcoder.PrepareStreamTranscodeAsync(srcStream, dest, profile);
-                if (!prep.CanTranscode)
-                {
-                    return;
-                }
-                await prep.TranscodeAsync();
-
-                dest.Seek(0);
-                var bytes = new byte[dest.Size];
-                using (var reader = new Windows.Storage.Streams.DataReader(dest))
-                {
-                    await reader.LoadAsync((uint)dest.Size);
-                    reader.ReadBytes(bytes);
-                }
-
-                var peaks = Quickening.Core.Audio.WaveformSampler.ComputePeaks(bytes, 160);
-                if (peaks.Length > 0 && _audioContainer is not null)
+                // Decoding runs on the thread pool (see OpenReadOffUiThreadAsync);
+                // only the drawing of the bars happens back here on the UI thread.
+                var path = _path;
+                var peaks = await System.Threading.Tasks.Task.Run(() => DecodeWaveformPeaksAsync(path));
+                if (peaks is { Length: > 0 } && _audioContainer is not null)
                 {
                     BuildWaveform(peaks);
                 }
@@ -1184,6 +1191,41 @@ public sealed partial class MediaComparisonViewer : UserControl
             {
                 App.Logger?.LogError($"Waveform build failed for '{_path}': {ex}");
             }
+        }
+
+        // Thread-pool half of LoadWaveformAsync; touches no XAML. Null means "keep
+        // the pulsing EQ" (too long to decode, or not transcodable).
+        private static async System.Threading.Tasks.Task<float[]?> DecodeWaveformPeaksAsync(string path)
+        {
+            var source = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
+            var music = await source.Properties.GetMusicPropertiesAsync();
+            if (music.Duration > TimeSpan.FromMinutes(20))
+            {
+                return null; // decoding a very long track to PCM in memory isn't worth it
+            }
+
+            var transcoder = new Windows.Media.Transcoding.MediaTranscoder();
+            var profile = Windows.Media.MediaProperties.MediaEncodingProfile.CreateWav(
+                Windows.Media.MediaProperties.AudioEncodingQuality.Low);
+            using var srcStream = await source.OpenReadAsync();
+            using var dest = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+
+            var prep = await transcoder.PrepareStreamTranscodeAsync(srcStream, dest, profile);
+            if (!prep.CanTranscode)
+            {
+                return null;
+            }
+            await prep.TranscodeAsync();
+
+            dest.Seek(0);
+            var bytes = new byte[dest.Size];
+            using (var reader = new Windows.Storage.Streams.DataReader(dest))
+            {
+                await reader.LoadAsync((uint)dest.Size);
+                reader.ReadBytes(bytes);
+            }
+
+            return Quickening.Core.Audio.WaveformSampler.ComputePeaks(bytes, 160);
         }
 
         private void BuildWaveform(float[] peaks)
