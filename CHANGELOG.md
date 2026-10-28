@@ -6,6 +6,23 @@ automatically, so you're normally on the latest version already.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and
 Quickening follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.3] - 2026-10-27
+
+### Added
+- Results Sort menu: Largest first, Smallest first, or Scan order. Each group
+  ranks by its largest file; applies to every results section and is
+  remembered between sessions.
+- Settings > Keep overrides: a ranked list of folders (add, remove, drag to
+  reorder). The copy in the highest-ranked folder gets the KEEP badge and is
+  left unticked by Select Recommended; the normal keep rule picks among copies
+  in that folder, or decides alone when no copy is in any listed folder.
+
+### Fixed
+- Crash (c000027b in Microsoft.UI.Xaml.dll) while reviewing results: loading a
+  video row's thumbnail made a blocking Windows file call during the list's
+  layout pass. Thumbnail and comparison-viewer file loads now run in the
+  background.
+
 ## [1.3.2] - 2026-10-14
 
 ### Added
