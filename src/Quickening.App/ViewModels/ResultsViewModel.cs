@@ -244,8 +244,18 @@ public sealed class SelectableFile : INotifyPropertyChanged
 
         try
         {
-            var storageFile = await Windows.Storage.StorageFile.GetFileFromPathAsync(Path);
-            using var thumb = await storageFile.GetThumbnailAsync(Windows.Storage.FileProperties.ThumbnailMode.VideosView, 64);
+            // The StorageFile calls run on the thread pool, never the UI thread.
+            // GetFileFromPathAsync makes a blocking cross-apartment COM call
+            // before it returns its task, and COM pumps messages while it waits.
+            // Called from the row's Loaded handler (inside XAML's layout tick),
+            // that pump let a XAML timer message re-enter, and XAML fail-fasted
+            // the process with 0x8000ffff (c000027b, no managed exception, no log).
+            // Only the BitmapImage work, which needs the UI thread, stays here.
+            using var thumb = await System.Threading.Tasks.Task.Run(async () =>
+            {
+                var storageFile = await Windows.Storage.StorageFile.GetFileFromPathAsync(Path);
+                return await storageFile.GetThumbnailAsync(Windows.Storage.FileProperties.ThumbnailMode.VideosView, 64);
+            });
             if (thumb is null || thumb.Size == 0)
             {
                 return;
@@ -505,6 +515,10 @@ public sealed class ResultsViewModel
     // and Remove - what you see is exactly what those act on.
     public HashSet<string> HiddenSections { get; } = new(StringComparer.Ordinal);
 
+    // The Sort dropdown's choice. ApplyFilters orders Groups by it; the page
+    // orders the similar/video/music clusters with the same GroupSorter.
+    public Settings.ResultsSortOrder SortOrder { get; set; } = Settings.ResultsSortOrder.ScanOrder;
+
     // Distinct file extensions across every section of the loaded results
     // (lower-cased, with the leading dot, sorted), for the Extension dropdown.
     // Only offers an extension the user can actually filter to a result: a
@@ -693,7 +707,7 @@ public sealed class ResultsViewModel
     {
         Groups.Clear();
 
-        foreach (var groupFiles in _allGroups)
+        foreach (var groupFiles in GroupSorter.Order(_allGroups, g => g, SortOrder))
         {
             var visibleFiles = groupFiles.Where(MatchesFilters).ToList();
             if (visibleFiles.Count < 2)
@@ -706,9 +720,7 @@ public sealed class ResultsViewModel
                 continue;
             }
 
-            var rule = App.Settings.PreferredKeepRule;
-            var keeper = ChooseKeeper(visibleFiles, rule);
-            var keepLabel = KeepLabelFor(rule, keeper, visibleFiles);
+            var (keeper, keepLabel) = ChooseKeeper(visibleFiles);
             foreach (var file in visibleFiles)
             {
                 file.IsKeepRecommended = ReferenceEquals(file, keeper);
@@ -1475,7 +1487,6 @@ public sealed class ResultsViewModel
     /// </summary>
     public void SelectRecommended()
     {
-        var rule = App.Settings.PreferredKeepRule;
         foreach (var group in Groups)
         {
             // "Created together" sets (installer/extractor output) are never
@@ -1486,7 +1497,7 @@ public sealed class ResultsViewModel
                 continue;
             }
 
-            var keeper = ChooseKeeper(group.Files, rule);
+            var (keeper, _) = ChooseKeeper(group.Files);
             foreach (var file in group.Files)
             {
                 // Never pre-select a network-drive file - see SetSelection's
@@ -1498,38 +1509,11 @@ public sealed class ResultsViewModel
 
     // Shared by ApplyFilters (which file gets the KEEP pill) and
     // SelectRecommended (which file stays unticked) - both need to agree on
-    // the same choice, driven by Settings' "Select Recommended keeps the…"
-    // rule, or the pill and the pre-selection could point at different files.
-    private static SelectableFile ChooseKeeper(IReadOnlyList<SelectableFile> files, KeepRule rule) => rule switch
-    {
-        KeepRule.Oldest => files.OrderBy(f => f.LastWriteTimeUtc).First(),
-        KeepRule.ShortestPath => files.OrderBy(f => f.Path.Length).First(),
-        _ => files.OrderByDescending(f => f.LastWriteTimeUtc).First(),
-    };
-
-    // "KEEP — newest" etc., or plain "KEEP" when the rule didn't really
-    // decide: rows show times to the second, so copies made in one go all
-    // read e.g. 8:08:16 PM and calling one "newest" (won on fractions of a
-    // second) looked arbitrary. Same for equal-length paths.
-    private static string KeepLabelFor(KeepRule rule, SelectableFile keeper, IReadOnlyList<SelectableFile> files)
-    {
-        static long Second(DateTime t) => t.Ticks / TimeSpan.TicksPerSecond;
-
-        var tied = rule switch
-        {
-            KeepRule.ShortestPath => files.Any(f => !ReferenceEquals(f, keeper) && f.Path.Length == keeper.Path.Length),
-            _ => files.Any(f => !ReferenceEquals(f, keeper) && Second(f.LastWriteTimeUtc) == Second(keeper.LastWriteTimeUtc)),
-        };
-
-        return tied
-            ? "KEEP"
-            : rule switch
-            {
-                KeepRule.Oldest => "KEEP — oldest",
-                KeepRule.ShortestPath => "KEEP — shortest path",
-                _ => "KEEP — newest",
-            };
-    }
+    // the same choice, driven by Settings' Keep overrides and its "Select
+    // Recommended keeps the…" rule, or the pill and the pre-selection could
+    // point at different files.
+    private static (SelectableFile Keeper, string Label) ChooseKeeper(IReadOnlyList<SelectableFile> files) =>
+        KeeperChooser.Choose(files, App.Settings.PreferredKeepRule, App.Settings.KeepOverrideFolderPaths);
 
     // Network-drive files (4i) can never be selected via any mass-select
     // rule - SendToRecycleBin refuses to delete them outright, so letting a

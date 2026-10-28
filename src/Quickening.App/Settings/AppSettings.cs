@@ -12,6 +12,17 @@ public enum KeepRule
 }
 
 /// <summary>
+/// Order of the groups on the Results page. Each group is ranked by its
+/// largest file; ScanOrder is the order the scan produced them.
+/// </summary>
+public enum ResultsSortOrder
+{
+    ScanOrder,
+    LargestFirst,
+    SmallestFirst,
+}
+
+/// <summary>
 /// Which of Home's two scan types a scheduled scan should run - named
 /// distinctly from HomePage's own private ScanMode (that one's UI-local;
 /// this one is persisted and also read by the tray watcher's scheduler).
@@ -119,6 +130,17 @@ public sealed class AppSettings
     public KeepRule PreferredKeepRule { get; set; } = KeepRule.Newest;
 
     /// <summary>
+    /// Settings' "Keep overrides": folders, highest priority first, whose
+    /// copies are kept ahead of PreferredKeepRule. A copy at or under the
+    /// highest-ranked folder that holds any copy of a group wins; with none,
+    /// PreferredKeepRule decides. Empty by default. See KeeperChooser.
+    /// </summary>
+    public List<string> KeepOverrideFolderPaths { get; set; } = new();
+
+    /// <summary>Results page "Sort" dropdown; remembered between sessions.</summary>
+    public ResultsSortOrder ResultsSortOrder { get; set; } = ResultsSortOrder.ScanOrder;
+
+    /// <summary>
     /// Folders where files are never flagged as "risky" regardless of
     /// extension - see Quickening.Core.Safety.RiskyExtensions and its
     /// callers. Empty by default.
@@ -194,9 +216,14 @@ public sealed class AppSettings
     /// </summary>
     public bool IsPathTrusted(string path) => TrustedFolderPaths.Any(trusted => IsUnderFolder(path, trusted));
 
-    private static bool IsUnderFolder(string path, string folder)
+    // Also used by KeeperChooser for KeepOverrideFolderPaths. A trailing
+    // separator on the folder ("C:\Keepers\", or a drive root "D:\") is
+    // trimmed first, otherwise the boundary check below would look one
+    // character too far and never match.
+    public static bool IsUnderFolder(string path, string folder)
     {
-        if (!path.StartsWith(folder, StringComparison.OrdinalIgnoreCase))
+        folder = folder.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+        if (folder.Length == 0 || !path.StartsWith(folder, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }

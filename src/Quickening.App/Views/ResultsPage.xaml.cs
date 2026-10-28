@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Shapes;
 using Quickening.App.Controls;
 using Quickening.App.Formatting;
+using Quickening.App.Settings;
 using Quickening.App.ViewModels;
 using Quickening.Core.Deletion;
 using Quickening.Core.Duplicates;
@@ -409,15 +410,15 @@ public sealed partial class ResultsPage : Page
                 break;
 
             case "similar":
-                fileCount += AppendClusters(rows, _viewModel.SimilarityGroups, 0x8C6EFF, 0xB9A5FF, rail);
+                fileCount += AppendClusters(rows, Sorted(_viewModel.SimilarityGroups), 0x8C6EFF, 0xB9A5FF, rail);
                 break;
 
             case "video":
-                fileCount += AppendClusters(rows, _viewModel.VideoGroups, 0xB06EFF, 0xD3B9FF, rail);
+                fileCount += AppendClusters(rows, Sorted(_viewModel.VideoGroups), 0xB06EFF, 0xD3B9FF, rail);
                 break;
 
             case "music":
-                foreach (var group in _viewModel.MusicGroups)
+                foreach (var group in GroupSorter.Order(_viewModel.MusicGroups, g => g.Files, _viewModel.SortOrder))
                 {
                     var visible = _viewModel.VisibleGroupFiles(group.Files);
                     if (visible.Count == 0)
@@ -456,6 +457,46 @@ public sealed partial class ResultsPage : Page
         }
 
         return rows;
+    }
+
+    // Duplicates are ordered by ApplyFilters; the cluster sections get the
+    // same Sort dropdown order here, as they're built.
+    private IEnumerable<SimilarityGroupViewModel> Sorted(IEnumerable<SimilarityGroupViewModel> groups) =>
+        GroupSorter.Order(groups, g => g.Files, _viewModel.SortOrder);
+
+    // Results "Sort" dropdown. Remembered in Settings so the next scan opens
+    // in the same order.
+    private void SortOption_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioMenuFlyoutItem { Tag: string tag }
+            || !Enum.TryParse<ResultsSortOrder>(tag, out var order)
+            || order == _viewModel.SortOrder)
+        {
+            return;
+        }
+
+        _viewModel.SortOrder = order;
+        App.Settings.ResultsSortOrder = order;
+        App.SaveSettings();
+        UpdateSortButton();
+        _viewModel.ApplyFilters();
+        RefreshSummary();
+    }
+
+    private void UpdateSortButton()
+    {
+        var label = _viewModel.SortOrder switch
+        {
+            ResultsSortOrder.LargestFirst => "Largest first",
+            ResultsSortOrder.SmallestFirst => "Smallest first",
+            _ => "Scan order",
+        };
+        SortButton.Content = $"Sort: {label} ▾";
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SortButton, $"Sort groups, currently {label}");
+        foreach (var item in SortMenu.Items.OfType<RadioMenuFlyoutItem>())
+        {
+            item.IsChecked = (string)item.Tag == _viewModel.SortOrder.ToString();
+        }
     }
 
     // Similar-photo / similar-video clusters: a sub-header per cluster (rep
@@ -552,6 +593,8 @@ public sealed partial class ResultsPage : Page
             _viewModel.ModifiedBefore = null;
             _viewModel.PathContains = null;
             _viewModel.ExtensionFilter = null;
+            _viewModel.SortOrder = App.Settings.ResultsSortOrder;
+            UpdateSortButton();
 
             _viewModel.LoadGroups(scanResult.DuplicateGroups);
             _viewModel.LoadSimilarityGroups(scanResult.SimilarityGroups);
